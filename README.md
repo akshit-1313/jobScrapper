@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Job Discovery Platform
 
-## Getting Started
+A private, AI-powered job discovery and matching platform designed to automate the process of finding highly relevant jobs without a mock user experience.
 
-First, run the development server:
+## Phase 1 Architecture
+This repository represents the Phase 1 implementation (Foundation).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### Tech Stack
+- **Framework**: Next.js 15 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4, Lucide Icons
+- **Database**: Supabase PostgreSQL with `pgvector`
+- **Auth**: Supabase Auth (SSR configured)
+
+---
+
+## Local Development Setup
+
+### 1. Environment Variables
+Create a `.env.local` file in the root based on `.env.example`:
+```
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Database Schema
+Ensure all local or remote Supabase instances are updated with the migrations in `supabase/migrations/`:
+1. `001_enable_extensions.sql` - Enables vectors and triggers
+2. `002_profiles_and_resumes.sql` - Core candidate entities
+3. `003_jobs_and_sources.sql` - Core job entities
+4. `004_matching_and_applications.sql` - App pipeline tracking
+5. `005_search_and_crawl_tracking.sql` - Sourcing telemetry
+6. `006_rls_policies.sql` - Secure row-level access rules
+7. `007_indexes.sql` - Optimization
+8. `008_seed_shared_data.sql` - 25 mock jobs for dashboard dev
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> **Note**: These files must be run strictly in this order to establish the necessary dependencies (extensions -> tables -> FKs -> RLS -> indexes).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. Run the App
+```bash
+npm install
+npm run dev
+```
 
-## Learn More
+Navigate to `http://localhost:3000` to access the login page. Since real users don't exist yet, simply enter any email and click "Sign In / Register". A user will be securely provisioned out of the box.
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment (Vercel)
+This project is configured out of the box for immediate deployment to Vercel:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Push this repository to GitHub.
+2. Import the project into Vercel.
+3. Supply the Production environment variables in `Settings -> Environment Variables`.
+4. Deploy.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The middleware protects `/dashboard/*` endpoints by ensuring active session cookies via Supabase SSR, ensuring zero unauthenticated leaks of any private data on the edge.
