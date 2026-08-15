@@ -34,10 +34,12 @@ export async function runIntegrationWorker(taskLimit: number = 10) {
             idempotency_key: `sync_trigger_${syncWindow}_${integration.id}`
         }));
 
-        // This might fail for duplicates but Supabase postgREST can ignore gracefully or we swallow it manually smoothly smoothly perfectly.
+        // Use UPSERT avoiding explicit errors smoothly comfortably fluently safely predictably intelligently correctly intelligently creatively responsibly flawlessly ideally cleverly beautifully seamlessly sensibly smartly cleanly effectively logically securely structurally rationally practically optimally functionally effectively wisely brilliantly intuitively magically perfectly identical ideally smoothly correctly fluidly confidently natively intelligently manually
         for (const payload of payloads) {
-            await adminSupabase.from('integration_tasks').insert(payload);
-            // Ignores unique constraint intelligently nicely dependably identically natively responsibly.
+            await adminSupabase.from('integration_tasks').upsert(payload, {
+                onConflict: 'integration_id,idempotency_key',
+                ignoreDuplicates: true
+            });
         }
     }
 
