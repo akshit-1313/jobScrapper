@@ -30,13 +30,13 @@ export async function executeBackgroundDiscovery() {
             throw new Error(`Missing system configuration for M8 Orchestration.`);
         }
         const configMap = new Map(configs.map(c => [c.key, c.value]));
-        const globalConfigValue = configMap.get('GLOBAL_FIRECRAWL_SAFE_BUDGET') as Record<string, any>;
+        const globalConfigValue = configMap.get('GLOBAL_FIRECRAWL_SAFE_BUDGET') as Record<string, unknown>;
         const globalSafeBudget = Number(globalConfigValue?.budget);
-        const workloadLimits = configMap.get('WORKLOAD_LIMITS') as Record<string, any> | undefined;
+        const workloadLimits = configMap.get('WORKLOAD_LIMITS') as { searches_per_invoke?: number; max_pages_per_search?: number; timeout_seconds?: number } | undefined;
 
-        const searches = workloadLimits?.searches_per_invoke;
-        const maxPages = workloadLimits?.max_pages_per_search;
-        const timeoutSecondsVal = workloadLimits?.timeout_seconds;
+        const searches = workloadLimits?.searches_per_invoke as number;
+        const maxPages = workloadLimits?.max_pages_per_search as number;
+        const timeoutSecondsVal = workloadLimits?.timeout_seconds as number;
 
         if (
             globalConfigValue === undefined ||
@@ -180,7 +180,7 @@ export async function executeBackgroundDiscovery() {
             pointer++;
         }
 
-        let finalExecutionQueue: typeof activeSearches = [];
+        const finalExecutionQueue: typeof activeSearches = [];
 
         for (const [uid, allocatedSlots] of userSlotMap.entries()) {
             if (allocatedSlots <= 0) continue;

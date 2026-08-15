@@ -247,7 +247,7 @@ export class DeterministicMatcher {
 
         if (prefGeos.length > 0) {
             let locationMatched = false;
-            let checkRegions = [...job.job_locations.map(l => l.country), ...job.job_locations.map(l => l.city)].filter(Boolean).map(s => s!.toLowerCase());
+            const checkRegions = [...job.job_locations.map(l => l.country), ...job.job_locations.map(l => l.city)].filter(Boolean).map(s => s!.toLowerCase());
             if (isRemote && job.remote_scope) checkRegions.push(job.remote_scope.toLowerCase());
 
             if (checkRegions.length > 0) {

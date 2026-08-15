@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "message": "supabaseUrl is required.",
+  "stack": "Error: supabaseUrl is required.\n    at validateSupabaseUrl (file:///C:/Users/akshi/.gemini/antigravity/scratch/jobdiscovery/node_modules/@supabase/supabase-js/dist/index.mjs:375:25)\n    at new SupabaseClient (file:///C:/Users/akshi/.gemini/antigravity/scratch/jobdiscovery/node_modules/@supabase/supabase-js/dist/index.mjs:618:19)\n    at createClient (file:///C:/Users/akshi/.gemini/antigravity/scratch/jobdiscovery/node_modules/@supabase/supabase-js/dist/index.mjs:858:9)\n    at run (file:///C:/Users/akshi/.gemini/antigravity/scratch/jobdiscovery/tests/send-test.mjs:9:26)\n    at file:///C:/Users/akshi/.gemini/antigravity/scratch/jobdiscovery/tests/send-test.mjs:72:1\n    at ModuleJob.run (node:internal/modules/esm/module_job:222:25)\n    at async ModuleLoader.import (node:internal/modules/esm/loader:316:24)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:123:5)"
+}

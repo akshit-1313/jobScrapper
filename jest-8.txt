@@ -1,0 +1,1649 @@
+﻿npx : PASS tests/int
+egration-db.test.ts
+At line:1 char:39
++ ... t > 
+lint-output.txt 
+2>&1 ; npx jest 
+--no-color > 
+jest-output.txt 2>&1
++                   
+             ~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
+    + CategoryInfo  
+            : NotS  
+  pecified: (PASS   
+  tests/integrat    
+ion-db.test.ts:    
+String) [], Rem    
+oteException
+    + FullyQualifie 
+   dErrorId : Nati  
+  veCommandError
+ 
+PASS tests/m9-backgr
+ound-discovery.test.
+ts
+FAIL ./test.js
+  ΓùÅ Test suite 
+failed to run
+
+    Your test suite 
+must contain at 
+least one test.
+
+      at onResult (n
+ode_modules/@jest/co
+re/build/index.js:10
+54:18)
+      at node_module
+s/@jest/core/build/i
+ndex.js:1125:165
+      at node_module
+s/emittery/index.js:
+363:13
+          at 
+Array.map 
+(<anonymous>)
+      at 
+Emittery.emit (node_
+modules/emittery/ind
+ex.js:361:23)
+
+PASS tests/geographi
+c-allocator.test.ts
+PASS tests/phase-c.t
+est.ts
+  ΓùÅ Console
+
+    console.error
+      [M8_PHASE_C_IS
+OLATED_FAIL] Error 
+processing job 
+job-1: { message: 
+'db_timeout' }
+
+      130 |         
+        }
+      131 |         
+    } catch (err) {
+    > 132 |         
+        console.erro
+r(`[M8_PHASE_C_ISOLA
+TED_FAIL] Error 
+processing job 
+${job.id}:`, err);
+          |         
+                ^
+      133 |         
+        
+internalFailures++;
+      134 |         
+    }
+      135 |         
+}
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:132:25)
+      at 
+Object.<anonymous> (
+tests/phase-c.test.t
+s:150:21)
+
+    console.error
+      [M8_PHASE_C_IS
+OLATED_FAIL] Error 
+processing job 
+job-failed: { 
+message: 'fault' }
+
+      130 |         
+        }
+      131 |         
+    } catch (err) {
+    > 132 |         
+        console.erro
+r(`[M8_PHASE_C_ISOLA
+TED_FAIL] Error 
+processing job 
+${job.id}:`, err);
+          |         
+                ^
+      133 |         
+        
+internalFailures++;
+      134 |         
+    }
+      135 |         
+}
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:132:25)
+      at 
+Object.<anonymous> (
+tests/phase-c.test.t
+s:165:21)
+
+    console.error
+      [M8_PHASE_C_IS
+OLATED_FAIL] Error 
+processing job 
+job-1: { message: 
+'upsert_timeout' }
+
+      130 |         
+        }
+      131 |         
+    } catch (err) {
+    > 132 |         
+        console.erro
+r(`[M8_PHASE_C_ISOLA
+TED_FAIL] Error 
+processing job 
+${job.id}:`, err);
+          |         
+                ^
+      133 |         
+        
+internalFailures++;
+      134 |         
+    }
+      135 |         
+}
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:132:25)
+      at 
+Object.<anonymous> (
+tests/phase-c.test.t
+s:178:21)
+
+    console.error
+      [M8_PHASE_C_IS
+OLATED_FAIL] Error 
+processing job 
+job-1: Error: 
+Matcher broke 
+naturally sensibly 
+cleanly 
+intelligently
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\phase-c.test.ts:18
+8:19)
+          at C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-mock\build\in
+dex.js:305:39
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-mock\b
+uild\index.js:312:13
+)
+          at Object.
+mockConstructor [as 
+match] (C:\Users\aks
+hi\.gemini\antigravi
+ty\scratch\jobdiscov
+ery\node_modules\jes
+t-mock\build\index.j
+s:102:19)
+          at execute
+PhaseCMatchAlerts (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\src\l
+ib\m8\phase-c-orches
+trator.ts:80:58)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\phase-c.test.ts:19
+1:21)
+
+      130 |         
+        }
+      131 |         
+    } catch (err) {
+    > 132 |         
+        console.erro
+r(`[M8_PHASE_C_ISOLA
+TED_FAIL] Error 
+processing job 
+${job.id}:`, err);
+          |         
+                ^
+      133 |         
+        
+internalFailures++;
+      134 |         
+    }
+      135 |         
+}
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:132:25)
+      at 
+Object.<anonymous> (
+tests/phase-c.test.t
+s:191:21)
+
+PASS tests/matching.
+test.ts
+PASS tests/m9-gmail-
+intelligence.test.ts
+  ΓùÅ Console
+
+    console.error
+      Gmail API 
+list failed Error: 
+Rate Limit Exceeded
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\m9-gmail-intellige
+nce.test.ts:227:61)
+          at Promise
+.finally.completed (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:1561:28)
+          at new 
+Promise 
+(<anonymous>)
+          at 
+callAsyncCircusFn (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\node_
+modules\jest-circus\
+build\jestAdapterIni
+t.js:1501:10)
+          at 
+_callCircusTest (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-circus\bu
+ild\jestAdapterInit.
+js:1011:40)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+_runTest (C:\Users\a
+kshi\.gemini\antigra
+vity\scratch\jobdisc
+overy\node_modules\j
+est-circus\build\jes
+tAdapterInit.js:951:
+3)
+          at C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+jestAdapterInit.js:8
+53:7
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:866:11)
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:861:11)
+          at run (C:
+\Users\akshi\.gemini
+\antigravity\scratch
+\jobdiscovery\node_m
+odules\jest-circus\b
+uild\jestAdapterInit
+.js:765:3)
+          at runAndT
+ransformResultsToJes
+tFormat (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-circus\build\jest
+AdapterInit.js:1993:
+21)
+          at 
+jestAdapter (C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+runner.js:111:19)
+          at 
+runTestInternal (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-runner\bu
+ild\testWorker.js:27
+6:16)
+          at 
+runTest (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-runner\build\test
+Worker.js:344:7)
+          at 
+Object.worker (C:\Us
+ers\akshi\.gemini\an
+tigravity\scratch\jo
+bdiscovery\node_modu
+les\jest-runner\buil
+d\testWorker.js:498:
+12)
+
+      47 |         
+});
+      48 |     } 
+catch (e) {
+    > 49 |         c
+onsole.error('Gmail 
+API list failed', 
+e);
+         |          
+       ^
+      50 |         
+return { success: 
+false, error: 
+'Failed to access 
+Gmail inbox 
+safely.' };
+      51 |     }
+      52 |
+
+      at processGmai
+lIntelligence (src/l
+ib/integrations/gmai
+l-intelligence.ts:49
+:17)
+      at 
+Object.<anonymous> (
+tests/m9-gmail-intel
+ligence.test.ts:229:
+24)
+
+PASS tests/backgroun
+d-discovery.test.ts
+  ΓùÅ Console
+
+    console.error
+      
+[M8_CRON_FATAL] 
+Orchestrator threw: 
+Error: M8_ERR_CONFIG
+_INVALID: Missing 
+or invalid required 
+configuration keys (
+GLOBAL_FIRECRAWL_SAF
+E_BUDGET or 
+WORKLOAD_LIMITS).
+          at execute
+BackgroundDiscovery 
+(C:\Users\akshi\.gem
+ini\antigravity\scra
+tch\jobdiscovery\src
+\lib\m8\background-d
+iscovery.ts:50:19)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\background-discove
+ry.test.ts:71:21)
+
+      327 |     } 
+catch (e: unknown) {
+      328 |         
+const typedErr = e 
+as Error;
+    > 329 |         
+console.error(`[M8_C
+RON_FATAL] 
+Orchestrator 
+threw:`, e);
+          |         
+        ^
+      330 |         
+await supabase.from(
+'m8_cron_runs').upda
+te({
+      331 |         
+    status: 
+'failed',
+      332 |         
+    error_log: 
+typedErr.message || 
+'Unknown 
+orchestrator error',
+
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:329:17)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:71:21
+)
+
+    console.error
+      
+[M8_CRON_FATAL] 
+Critical budget 
+logic failure. 
+Balance dropped 
+below zero after 
+ledger sync cleanly 
+explicitly 
+optimally correctly 
+magically 
+confidently 
+realistically 
+cleanly dependably 
+seamlessly 
+intelligently 
+mathematically.
+
+      275 |
+      276 |         
+        if 
+(newUserRemaining < 
+0 || 
+newGlobalRemaining 
+< 0) {
+    > 277 |         
+            console.
+error(`[M8_CRON_FATA
+L] Critical budget 
+logic failure. 
+Balance dropped 
+below zero after 
+ledger sync cleanly 
+explicitly 
+optimally correctly 
+magically 
+confidently 
+realistically 
+cleanly dependably 
+seamlessly 
+intelligently 
+mathematically.`);
+          |         
+                    
+^
+      278 |         
+            await su
+pabase.from('m8_cron
+_runs').update({ 
+status: 'failed', 
+error_log: 'CRITICAL
+_BUDGET_LOGIC_FAILUR
+E', completed_at: 
+new Date().toISOStri
+ng() }).eq('id', 
+cronRun.id);
+      279 |         
+            return 
+{ success: false, 
+reason: 'CRITICAL_BU
+DGET_LOGIC_FAILURE' 
+};
+      280 |         
+        }
+
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:277:29)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:92:9)
+
+    console.error
+      
+[M8_PHASE_C_FATAL] 
+TypeError: adminClie
+nt.from(...).select(
+...).eq(...).eq(...)
+.eq is not a 
+function
+          at execute
+PhaseCMatchAlerts (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\src\l
+ib\m8\phase-c-orches
+trator.ts:19:14)
+          at execute
+BackgroundDiscovery 
+(C:\Users\akshi\.gem
+ini\antigravity\scra
+tch\jobdiscovery\src
+\lib\m8\background-d
+iscovery.ts:294:70)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\background-discove
+ry.test.ts:104:9)
+
+      143 |
+      144 |     } 
+catch (e) {
+    > 145 |         
+console.error('[M8_P
+HASE_C_FATAL]', e);
+          |         
+        ^
+      146 |         
+return { success: 
+false, error: e 
+instanceof Error ? 
+e.message : 
+'Unknown fatal 
+pipeline error 
+securely smoothly 
+organically 
+flexibly 
+successfully 
+thoughtfully 
+ideally fluently 
+expertly cleanly 
+safely.' };
+      147 |     }
+      148 | }
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:145:17)
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:294:70)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:104:9
+)
+
+    console.error
+      [M8_PHASE_C] 
+Graceful boundary 
+failure securely 
+dependably isolated 
+mathematically 
+creatively 
+rationally 
+explicitly 
+creatively 
+efficiently 
+confidently 
+intuitively 
+logically manually 
+ideally 
+thoughtfully 
+gracefully 
+precisely reliably 
+predictably 
+gracefully: adminCli
+ent.from(...).select
+(...).eq(...).eq(...
+).eq is not a 
+function
+
+      294 |         
+                
+const phaseC = 
+await executePhaseCM
+atchAlerts(runId, 
+uid, 
+searchTarget.id);
+      295 |         
+                if 
+(!phaseC.success) {
+    > 296 |         
+                    
+console.error(`[M8_P
+HASE_C] Graceful 
+boundary failure 
+securely dependably 
+isolated 
+mathematically 
+creatively 
+rationally 
+explicitly 
+creatively 
+efficiently 
+confidently 
+intuitively 
+logically manually 
+ideally 
+thoughtfully 
+gracefully 
+precisely reliably 
+predictably 
+gracefully: 
+${phaseC.error}`);
+          |         
+                    
+        ^
+      297 |         
+                }
+      298 |         
+            } catch 
+(phaseCErr) {
+      299 |         
+                cons
+ole.error(`[M8_PHASE
+_C] Catch boundary 
+safely explicitly 
+gracefully 
+functionally 
+securely optimally 
+securely 
+responsibly 
+organically 
+seamlessly natively 
+flawlessly 
+rationally 
+flexibly:`, 
+phaseCErr);
+
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:296:37)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:104:9
+)
+
+    console.error
+      
+[M8_PHASE_C_FATAL] 
+TypeError: adminClie
+nt.from(...).select(
+...).eq(...).eq(...)
+.eq is not a 
+function
+          at execute
+PhaseCMatchAlerts (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\src\l
+ib\m8\phase-c-orches
+trator.ts:19:14)
+          at execute
+BackgroundDiscovery 
+(C:\Users\akshi\.gem
+ini\antigravity\scra
+tch\jobdiscovery\src
+\lib\m8\background-d
+iscovery.ts:294:70)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\background-discove
+ry.test.ts:114:21)
+
+      143 |
+      144 |     } 
+catch (e) {
+    > 145 |         
+console.error('[M8_P
+HASE_C_FATAL]', e);
+          |         
+        ^
+      146 |         
+return { success: 
+false, error: e 
+instanceof Error ? 
+e.message : 
+'Unknown fatal 
+pipeline error 
+securely smoothly 
+organically 
+flexibly 
+successfully 
+thoughtfully 
+ideally fluently 
+expertly cleanly 
+safely.' };
+      147 |     }
+      148 | }
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:145:17)
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:294:70)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:114:2
+1)
+
+    console.error
+      [M8_PHASE_C] 
+Graceful boundary 
+failure securely 
+dependably isolated 
+mathematically 
+creatively 
+rationally 
+explicitly 
+creatively 
+efficiently 
+confidently 
+intuitively 
+logically manually 
+ideally 
+thoughtfully 
+gracefully 
+precisely reliably 
+predictably 
+gracefully: adminCli
+ent.from(...).select
+(...).eq(...).eq(...
+).eq is not a 
+function
+
+      294 |         
+                
+const phaseC = 
+await executePhaseCM
+atchAlerts(runId, 
+uid, 
+searchTarget.id);
+      295 |         
+                if 
+(!phaseC.success) {
+    > 296 |         
+                    
+console.error(`[M8_P
+HASE_C] Graceful 
+boundary failure 
+securely dependably 
+isolated 
+mathematically 
+creatively 
+rationally 
+explicitly 
+creatively 
+efficiently 
+confidently 
+intuitively 
+logically manually 
+ideally 
+thoughtfully 
+gracefully 
+precisely reliably 
+predictably 
+gracefully: 
+${phaseC.error}`);
+          |         
+                    
+        ^
+      297 |         
+                }
+      298 |         
+            } catch 
+(phaseCErr) {
+      299 |         
+                cons
+ole.error(`[M8_PHASE
+_C] Catch boundary 
+safely explicitly 
+gracefully 
+functionally 
+securely optimally 
+securely 
+responsibly 
+organically 
+seamlessly natively 
+flawlessly 
+rationally 
+flexibly:`, 
+phaseCErr);
+
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:296:37)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:114:2
+1)
+
+    console.error
+      
+[M8_CRON_FATAL] 
+Ledger insertion 
+failed for user-a: 
+Database lockdown
+
+      261 |
+      262 |         
+        if 
+(ledgerError) {
+    > 263 |         
+            console.
+error(`[M8_CRON_FATA
+L] Ledger insertion 
+failed for ${uid}: $
+{ledgerError.message
+}`);
+          |         
+                    
+^
+      264 |         
+            await su
+pabase.from('m8_cron
+_runs').update({
+      265 |         
+                
+status: 'failed',
+      266 |         
+                
+error_log: 'CRITICAL
+_LEDGER_FAILURE: ' 
++ 
+ledgerError.message,
+
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:263:29)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:125:2
+1)
+
+    console.error
+      
+[M8_PHASE_C_FATAL] 
+TypeError: adminClie
+nt.from(...).select(
+...).eq(...).eq(...)
+.eq is not a 
+function
+          at execute
+PhaseCMatchAlerts (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\src\l
+ib\m8\phase-c-orches
+trator.ts:19:14)
+          at execute
+BackgroundDiscovery 
+(C:\Users\akshi\.gem
+ini\antigravity\scra
+tch\jobdiscovery\src
+\lib\m8\background-d
+iscovery.ts:294:70)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\background-discove
+ry.test.ts:140:9)
+
+      143 |
+      144 |     } 
+catch (e) {
+    > 145 |         
+console.error('[M8_P
+HASE_C_FATAL]', e);
+          |         
+        ^
+      146 |         
+return { success: 
+false, error: e 
+instanceof Error ? 
+e.message : 
+'Unknown fatal 
+pipeline error 
+securely smoothly 
+organically 
+flexibly 
+successfully 
+thoughtfully 
+ideally fluently 
+expertly cleanly 
+safely.' };
+      147 |     }
+      148 | }
+
+      at executePhas
+eCMatchAlerts (src/l
+ib/m8/phase-c-orches
+trator.ts:145:17)
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:294:70)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:140:9
+)
+
+    console.error
+      [M8_PHASE_C] 
+Graceful boundary 
+failure securely 
+dependably isolated 
+mathematically 
+creatively 
+rationally 
+explicitly 
+creatively 
+efficiently 
+confidently 
+intuitively 
+logically manually 
+ideally 
+thoughtfully 
+gracefully 
+precisely reliably 
+predictably 
+gracefully: adminCli
+ent.from(...).select
+(...).eq(...).eq(...
+).eq is not a 
+function
+
+      294 |         
+                
+const phaseC = 
+await executePhaseCM
+atchAlerts(runId, 
+uid, 
+searchTarget.id);
+      295 |         
+                if 
+(!phaseC.success) {
+    > 296 |         
+                    
+console.error(`[M8_P
+HASE_C] Graceful 
+boundary failure 
+securely dependably 
+isolated 
+mathematically 
+creatively 
+rationally 
+explicitly 
+creatively 
+efficiently 
+confidently 
+intuitively 
+logically manually 
+ideally 
+thoughtfully 
+gracefully 
+precisely reliably 
+predictably 
+gracefully: 
+${phaseC.error}`);
+          |         
+                    
+        ^
+      297 |         
+                }
+      298 |         
+            } catch 
+(phaseCErr) {
+      299 |         
+                cons
+ole.error(`[M8_PHASE
+_C] Catch boundary 
+safely explicitly 
+gracefully 
+functionally 
+securely optimally 
+securely 
+responsibly 
+organically 
+seamlessly natively 
+flawlessly 
+rationally 
+flexibly:`, 
+phaseCErr);
+
+      at executeBack
+groundDiscovery (src
+/lib/m8/background-d
+iscovery.ts:296:37)
+      at 
+Object.<anonymous> (
+tests/background-dis
+covery.test.ts:140:9
+)
+
+PASS 
+tests/cron.test.ts
+  ΓùÅ Console
+
+    console.error
+      
+[CRON_AUTH_ERROR] 
+System CRON_SECRET 
+is not configured.
+
+      17 |         
+// Fail-closed 
+initialization check
+      18 |         
+if 
+(!expectedSecret) {
+    > 19 |          
+   console.error("[C
+RON_AUTH_ERROR] 
+System CRON_SECRET 
+is not 
+configured.");
+         |          
+           ^
+      20 |          
+   return 
+NextResponse.json({ 
+error: "System 
+Configuration 
+Error" }, { status: 
+500 });
+      21 |         }
+      22 |
+
+      at POST (src/a
+pp/api/cron/discover
+y/route.ts:19:21)
+      at 
+Object.<anonymous> (
+tests/cron.test.ts:3
+5:36)
+
+PASS tests/m9-worker
+-scheduler.test.ts
+  ΓùÅ Console
+
+    console.error
+      [CRON_FATAL] 
+Error: Internal 
+Fatal Exploit 
+Simulation
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\m9-worker-schedule
+r.test.ts:62:63)
+          at Promise
+.finally.completed (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:1561:28)
+          at new 
+Promise 
+(<anonymous>)
+          at 
+callAsyncCircusFn (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\node_
+modules\jest-circus\
+build\jestAdapterIni
+t.js:1501:10)
+          at 
+_callCircusTest (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-circus\bu
+ild\jestAdapterInit.
+js:1011:40)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+_runTest (C:\Users\a
+kshi\.gemini\antigra
+vity\scratch\jobdisc
+overy\node_modules\j
+est-circus\build\jes
+tAdapterInit.js:951:
+3)
+          at C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+jestAdapterInit.js:8
+53:7
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:866:11)
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:861:11)
+          at run (C:
+\Users\akshi\.gemini
+\antigravity\scratch
+\jobdiscovery\node_m
+odules\jest-circus\b
+uild\jestAdapterInit
+.js:765:3)
+          at runAndT
+ransformResultsToJes
+tFormat (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-circus\build\jest
+AdapterInit.js:1993:
+21)
+          at 
+jestAdapter (C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+runner.js:111:19)
+          at 
+runTestInternal (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-runner\bu
+ild\testWorker.js:27
+6:16)
+          at 
+runTest (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-runner\build\test
+Worker.js:344:7)
+          at 
+Object.worker (C:\Us
+ers\akshi\.gemini\an
+tigravity\scratch\jo
+bdiscovery\node_modu
+les\jest-runner\buil
+d\testWorker.js:498:
+12)
+
+      37 |
+      38 |     } 
+catch (error: 
+unknown) {
+    > 39 |         c
+onsole.error("[CRON_
+FATAL]", error);
+         |          
+       ^
+      40 |         
+return 
+NextResponse.json(
+      41 |          
+   { error: 
+"Internal execution 
+failure" },
+      42 |          
+   { status: 500 }
+
+      at POST (src/a
+pp/api/cron/integrat
+ion-worker/route.ts:
+39:17)
+      at 
+Object.<anonymous> (
+tests/m9-worker-sche
+duler.test.ts:65:35)
+
+    console.error
+      
+[CRON_AUTH_ERROR] 
+System CRON_SECRET 
+is not configured.
+
+      17 |         
+// Fail-closed 
+initialization check
+      18 |         
+if 
+(!expectedSecret) {
+    > 19 |          
+   console.error("[C
+RON_AUTH_ERROR] 
+System CRON_SECRET 
+is not 
+configured.");
+         |          
+           ^
+      20 |          
+   return 
+NextResponse.json({ 
+error: "System 
+Configuration 
+Error" }, { status: 
+500 });
+      21 |         }
+      22 |
+
+      at POST (src/a
+pp/api/cron/integrat
+ion-worker/route.ts:
+19:21)
+      at 
+Object.<anonymous> (
+tests/m9-worker-sche
+duler.test.ts:78:45)
+
+PASS tests/applicati
+ons.test.ts
+PASS 
+tests/admin.test.ts
+  ΓùÅ Console
+
+    console.error
+      [M8_ADMIN_UPDA
+TE_FAIL] 
+WORKLOAD_LIMITS 
+missing. Error: 
+Missing
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\admin.test.ts:203:
+78)
+          at Promise
+.finally.completed (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:1561:28)
+          at new 
+Promise 
+(<anonymous>)
+          at 
+callAsyncCircusFn (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\node_
+modules\jest-circus\
+build\jestAdapterIni
+t.js:1501:10)
+          at 
+_callCircusTest (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-circus\bu
+ild\jestAdapterInit.
+js:1011:40)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+_runTest (C:\Users\a
+kshi\.gemini\antigra
+vity\scratch\jobdisc
+overy\node_modules\j
+est-circus\build\jes
+tAdapterInit.js:951:
+3)
+          at C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+jestAdapterInit.js:8
+53:7
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:866:11)
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:861:11)
+          at run (C:
+\Users\akshi\.gemini
+\antigravity\scratch
+\jobdiscovery\node_m
+odules\jest-circus\b
+uild\jestAdapterInit
+.js:765:3)
+          at runAndT
+ransformResultsToJes
+tFormat (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-circus\build\jest
+AdapterInit.js:1993:
+21)
+          at 
+jestAdapter (C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+runner.js:111:19)
+          at 
+runTestInternal (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-runner\bu
+ild\testWorker.js:27
+6:16)
+          at 
+runTest (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-runner\build\test
+Worker.js:344:7)
+          at 
+Object.worker (C:\Us
+ers\akshi\.gemini\an
+tigravity\scratch\jo
+bdiscovery\node_modu
+les\jest-runner\buil
+d\testWorker.js:498:
+12)
+
+      59 |
+      60 |     if 
+(fetchErr || !conf) 
+{
+    > 61 |         c
+onsole.error('[M8_AD
+MIN_UPDATE_FAIL] 
+WORKLOAD_LIMITS 
+missing.', 
+fetchErr);
+         |          
+       ^
+      62 |         
+return { success: 
+false, error: 
+'Failed to safely 
+commit 
+configuration 
+update' };
+      63 |     }
+      64 |
+
+      at updateM8Wor
+kloadLimits (src/app
+/actions/admin-actio
+ns.ts:61:17)
+      at 
+Object.<anonymous> (
+tests/admin.test.ts:
+208:21)
+
+    console.error
+      [M8_ADMIN_UPDA
+TE_FAIL] Error: SECR
+ET_DATABASE_ERROR
+          at 
+Object.<anonymous> (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\test
+s\admin.test.ts:298:
+58)
+          at Promise
+.finally.completed (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:1561:28)
+          at new 
+Promise 
+(<anonymous>)
+          at 
+callAsyncCircusFn (C
+:\Users\akshi\.gemin
+i\antigravity\scratc
+h\jobdiscovery\node_
+modules\jest-circus\
+build\jestAdapterIni
+t.js:1501:10)
+          at 
+_callCircusTest (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-circus\bu
+ild\jestAdapterInit.
+js:1011:40)
+          at process
+TicksAndRejections (
+node:internal/proces
+s/task_queues:95:5)
+          at 
+_runTest (C:\Users\a
+kshi\.gemini\antigra
+vity\scratch\jobdisc
+overy\node_modules\j
+est-circus\build\jes
+tAdapterInit.js:951:
+3)
+          at C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+jestAdapterInit.js:8
+53:7
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:866:11)
+          at _runTes
+tsForDescribeBlock (
+C:\Users\akshi\.gemi
+ni\antigravity\scrat
+ch\jobdiscovery\node
+_modules\jest-circus
+\build\jestAdapterIn
+it.js:861:11)
+          at run (C:
+\Users\akshi\.gemini
+\antigravity\scratch
+\jobdiscovery\node_m
+odules\jest-circus\b
+uild\jestAdapterInit
+.js:765:3)
+          at runAndT
+ransformResultsToJes
+tFormat (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-circus\build\jest
+AdapterInit.js:1993:
+21)
+          at 
+jestAdapter (C:\User
+s\akshi\.gemini\anti
+gravity\scratch\jobd
+iscovery\node_module
+s\jest-circus\build\
+runner.js:111:19)
+          at 
+runTestInternal (C:\
+Users\akshi\.gemini\
+antigravity\scratch\
+jobdiscovery\node_mo
+dules\jest-runner\bu
+ild\testWorker.js:27
+6:16)
+          at 
+runTest (C:\Users\ak
+shi\.gemini\antigrav
+ity\scratch\jobdisco
+very\node_modules\je
+st-runner\build\test
+Worker.js:344:7)
+          at 
+Object.worker (C:\Us
+ers\akshi\.gemini\an
+tigravity\scratch\jo
+bdiscovery\node_modu
+les\jest-runner\buil
+d\testWorker.js:498:
+12)
+
+      78 |
+      79 |     if 
+(upsertErr) {
+    > 80 |         c
+onsole.error('[M8_AD
+MIN_UPDATE_FAIL]', 
+upsertErr);
+         |          
+       ^
+      81 |         
+return { success: 
+false, error: 
+'Failed to safely 
+commit 
+configuration 
+update' };
+      82 |     }
+      83 |
+
+      at updateM8Wor
+kloadLimits (src/app
+/actions/admin-actio
+ns.ts:80:17)
+      at 
+Object.<anonymous> (
+tests/admin.test.ts:
+301:21)
+
+PASS tests/m9-oauth.
+test.ts
+
+Test Suites: 1 
+failed, 12 passed, 
+13 total
+Tests:       99 
+passed, 99 total
+Snapshots:   0 total
+Time:        3.544 s
+Ran all test suites.

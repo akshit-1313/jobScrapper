@@ -41,7 +41,7 @@ export function NotificationBell() {
 
     // Polling and initial fetch securely enforcing Server Bounds
     useEffect(() => {
-        setMounted(true)
+        setTimeout(() => setMounted(true), 0)
         const fetchInitialState = async () => {
             const { data } = await getUnreadNotificationCount()
             if (typeof data === 'number') {

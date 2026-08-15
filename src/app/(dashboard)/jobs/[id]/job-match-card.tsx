@@ -38,7 +38,7 @@ export function JobMatchCard({ jobId, initialMatch }: { jobId: string, initialMa
                     <div>
                         <h3 className="font-semibold text-slate-900">Personalized Match Analysis</h3>
                         <p className="text-sm text-slate-600 mt-1 mb-4">
-                            Analyze this job against your profile, skills, and preferences to see if it's a good fit.
+                            Analyze this job against your profile, skills, and preferences to see if it&apos;s a good fit.
                         </p>
                         <button
                             onClick={calculate}

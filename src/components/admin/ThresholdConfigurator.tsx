@@ -26,8 +26,8 @@ export function ThresholdConfigurator({
             } else {
                 router.refresh();
             }
-        } catch (e: any) {
-            setErrorMsg(e.message || 'Unknown network error natively smoothly.');
+        } catch (e: unknown) {
+            setErrorMsg(e instanceof Error ? e.message : 'Unknown network error natively smoothly.');
         } finally {
             setIsSaving(false);
         }

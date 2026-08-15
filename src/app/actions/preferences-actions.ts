@@ -33,7 +33,7 @@ export async function upsertPreferences(formData: unknown) {
 
     try {
         // Trigger bounded job matching based on new preferences
-        const { triggerProfileMatching } = require('./match-actions')
+        const { triggerProfileMatching } = await import('./match-actions')
         await triggerProfileMatching()
     } catch (err) {
         console.error('Non-critical matcher failure on preferences update', err)

@@ -1,0 +1,24 @@
+﻿npx : Initialising 
+login role...
+At line:1 char:1
++ npx supabase db 
+push > 
+full_push_error.txt 
+2>&1
++ ~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~
+    + CategoryInfo  
+            : NotS  
+  pecified: (Init   
+ ialising login     
+role...:String)     
+[], RemoteExce    
+ption
+    + FullyQualifie 
+   dErrorId : Nati  
+  veCommandError
+ 
+Connecting to 
+remote database...
+{"_tag":"Error","error":{"code":"LegacyDbPushMissingRemoteError","message":"Found local migration files to be inserted before the last migration on remote database.","suggestion":"\nRerun the command with --include-all flag to apply these migrations:\nsupabase/migrations/001_enable_extensions.sql\nsupabase/migrations/002_profiles_and_resumes.sql\nsupabase/migrations/003_jobs_and_sources.sql\nsupabase/migrations/004_matching_and_applications.sql\nsupabase/migrations/005_search_and_crawl_tracking.sql\nsupabase/migrations/006_rls_policies.sql\nsupabase/migrations/007_indexes.sql\nsupabase/migrations/008_seed_shared_data.sql\nsupabase/migrations/009_storage.sql\n"}}

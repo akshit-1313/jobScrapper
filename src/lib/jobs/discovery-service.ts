@@ -27,7 +27,7 @@ function isDomainAllowed(candidateUrlStr: string, allowedHost: string): boolean 
  * Internal trusted executor bound to a specific user. 
  * Should only be called by fully trusted backend services.
  */
-export async function runJobDiscoveryForUser(userId: string, searchParams: Record<string, any> = { initiated_by: 'background_cron' }): Promise<{ runId: string, creditsUsed: number, pagesScraped: number, runError: boolean, unknownUsage: boolean }> {
+export async function runJobDiscoveryForUser(userId: string, searchParams: Record<string, unknown> = { initiated_by: 'background_cron' }): Promise<{ runId: string, creditsUsed: number, pagesScraped: number, runError: boolean, unknownUsage: boolean }> {
     const adminClient = createAdminClient();
     const registry = new SourceAdapterRegistry();
     let searchRunId = "";
@@ -40,7 +40,7 @@ export async function runJobDiscoveryForUser(userId: string, searchParams: Recor
         // 1. Initialize the Tracking Run 
         const searchRun = await createSearchRun({
             user_id: userId,
-            saved_search_id: searchParams.saved_search_id || null,
+            saved_search_id: (searchParams.saved_search_id as string) || undefined,
             search_params: searchParams
         });
         searchRunId = searchRun.id;
@@ -87,7 +87,7 @@ export async function runJobDiscoveryForUser(userId: string, searchParams: Recor
             try {
                 // 3. Bound concurrency natively with absolute max limits 
                 // Passed search limits if configured
-                const searchLimit = searchParams.limit || 5;
+                const searchLimit = (searchParams.limit as number) || 5;
                 const sourceRootDomain = new URL(source.base_url).hostname;
                 const discovered = await adapter.discover(source.base_url, searchLimit);
 

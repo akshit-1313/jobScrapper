@@ -1,0 +1,89 @@
+
+> jobdiscovery@0.1.0 lint
+> eslint
+
+(node:7136) ESLintIgnoreWarning: The ".eslintignore" file is no longer supported. Switch to using the "ignores" property in "eslint.config.js": https://eslint.org/docs/latest/use/configure/migration-guide#ignoring-files
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\app\(dashboard)\dashboard\page.tsx
+  4:31  warning  'TrendingUp' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\app\(dashboard)\jobs\[id]\job-match-card.tsx
+   5:53   warning  'Info' is defined but never used                    @typescript-eslint/no-unused-vars
+   6:15   warning  'MatchResult' is defined but never used             @typescript-eslint/no-unused-vars
+  90:28   warning  'badgeColor' is assigned a value but never used     @typescript-eslint/no-unused-vars
+  90:71   warning  'ringColor' is assigned a value but never used      @typescript-eslint/no-unused-vars
+  90:104  warning  'progressColor' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\app\(dashboard)\settings\integration-panel.tsx
+  30:18  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+  47:18  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\app\actions\match-actions.ts
+  4:48  warning  'MatchResult' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\applications\application-detail-sheet.tsx
+  6:31  warning  'Calendar' is defined but never used             @typescript-eslint/no-unused-vars
+  7:18  warning  'formatDistanceToNow' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\applications\application-kanban.tsx
+  6:35  warning  'MoreVertical' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\preferences\preferences-form.tsx
+  15:50  warning  'errors' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 @typescript-eslint/no-unused-vars
+  48:22  warning  Compilation Skipped: Use of incompatible library
+
+This API returns functions which cannot be memoized without leading to stale UI. To prevent this, by default React Compiler will skip memoizing this component/hook. However, you may see issues if values from this API are passed to other components/hooks that are memoized.
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\preferences\preferences-form.tsx:48:22
+  46 |     // Helper for rendering array-to-string fields
+  47 |     const ArrayInput = ({ label, field, placeholder }: { label: string, field: keyof PreferencesFormValues, placeholder: string }) => {
+> 48 |         const val = (watch(field) as string[]) || []
+     |                      ^^^^^ React Hook Form's `useForm()` API returns a `watch()` function which cannot be memoized safely.
+  49 |         return (
+  50 |             <div className="space-y-2">
+  51 |                 <label className="text-sm font-medium text-slate-700">{label} <span className="text-xs font-normal text-slate-400">(Comma separated)</span></label>  react-hooks/incompatible-library
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\profile\experience-form.tsx
+  25:23  warning  Compilation Skipped: Use of incompatible library
+
+This API returns functions which cannot be memoized without leading to stale UI. To prevent this, by default React Compiler will skip memoizing this component/hook. However, you may see issues if values from this API are passed to other components/hooks that are memoized.
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\profile\experience-form.tsx:25:23
+  23 |     })
+  24 |
+> 25 |     const isCurrent = watch('is_current')
+     |                       ^^^^^ React Hook Form's `useForm()` API returns a `watch()` function which cannot be memoized safely.
+  26 |
+  27 |     function handleEditContent(exp: CandidateExperience) {
+  28 |         setEditingId(exp.id!)  react-hooks/incompatible-library
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\resume\resume-section.tsx
+  20:63  warning  '_version' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\components\sidebar.tsx
+  7:5  warning  'Briefcase' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\lib\jobs\discovery-service.ts
+  161:41  warning  'canonical_id' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  197:49  warning  'canonical_id' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\lib\jobs\job-normalizer.ts
+   2:10  warning  'JobSource' is defined but never used     @typescript-eslint/no-unused-vars
+  19:51  warning  'sourceDomain' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\lib\m8\background-discovery.ts
+  146:19  warning  'SavedSearchRecord' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\lib\matching\matching-engine.ts
+  3:26  warning  'isSkillMatch' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\lib\resume\resume-parser.ts
+   1:64  warning  'ParsedProfileData' is defined but never used  @typescript-eslint/no-unused-vars
+  28:10  warning  'lines' is defined but never used              @typescript-eslint/no-unused-vars
+
+C:\Users\akshi\.gemini\antigravity\scratch\jobdiscovery\src\utils\supabase\middleware.ts
+  39:9  warning  'error' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+✖ 26 problems (0 errors, 26 warnings)
+

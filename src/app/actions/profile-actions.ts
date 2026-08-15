@@ -36,7 +36,7 @@ export async function upsertProfile(formData: unknown) {
     }
 
     try {
-        const { triggerProfileMatching } = require('./match-actions')
+        const { triggerProfileMatching } = await import('./match-actions')
         await triggerProfileMatching()
     } catch (err) {
         console.error('Non-critical matcher failure on profile update', err)

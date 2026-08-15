@@ -444,7 +444,7 @@ export async function confirmParsedProfile(formData: unknown): Promise<{
     }
 
     try {
-        const { triggerProfileMatching } = require('./match-actions')
+        const { triggerProfileMatching } = await import('./match-actions')
         await triggerProfileMatching()
     } catch (err) {
         console.error('Non-critical matcher failure on resume confirmation', err)

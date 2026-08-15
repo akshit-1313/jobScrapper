@@ -27,7 +27,7 @@ export function IntegrationPanel({ integrations }: { integrations: Integration[]
                 setError(res.error || 'Failed to connect.');
                 setLoading(false);
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             setError('System error establishing connection.');
             setLoading(false);
         }
@@ -44,7 +44,7 @@ export function IntegrationPanel({ integrations }: { integrations: Integration[]
                 setError(res.error || 'Failed to disconnect.');
                 setLoading(false);
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             setError('System error tearing down connection.');
             setLoading(false);
         }
