@@ -91,7 +91,13 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.redirect(new URL('/settings?success=1', req.url));
 
-    } catch (error) {
+    } catch (error: unknown) {
+        console.error('[OAUTH_ERROR_TRACE]', {
+            name: error instanceof Error ? error.name : 'UnknownError',
+            message: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined
+        });
+
         return NextResponse.redirect(new URL('/settings?error=OAuth_Execution_Failed', req.url));
     }
 }
