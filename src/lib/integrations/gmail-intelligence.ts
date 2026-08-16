@@ -45,9 +45,19 @@ export async function processGmailIntelligence(userId: string, integrationId: st
             maxResults: limit,
             q: query
         });
-    } catch (e) {
-        console.error('Gmail API list failed', e);
-        return { success: false, error: 'Failed to access Gmail inbox safely.' };
+    } catch (e: unknown) {
+        // Safe diagnostic: extract Google API error category without exposing credentials
+        let errorCategory = 'unknown_gmail_error';
+        if (e && typeof e === 'object') {
+            const gaxiosError = e as { code?: string | number; response?: { status?: number; data?: { error?: string; error_description?: string } }; message?: string };
+            const httpStatus = gaxiosError.response?.status || gaxiosError.code || 'no_status';
+            const apiError = gaxiosError.response?.data?.error || 'no_error_code';
+            const apiDesc = gaxiosError.response?.data?.error_description || '';
+            // Sanitize: never include tokens, headers, or request body
+            errorCategory = `gmail_api_error: status=${httpStatus}, error=${apiError}, desc=${apiDesc.substring(0, 200)}`;
+        }
+        console.error('Gmail API list failed:', errorCategory);
+        return { success: false, error: `Failed to access Gmail inbox safely. [${errorCategory}]` };
     }
 
     const messages = messagesResponse.data.messages || [];
