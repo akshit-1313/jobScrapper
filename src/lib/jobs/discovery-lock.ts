@@ -166,6 +166,28 @@ export async function releaseDiscoveryLock(
 
 export const PROFILE_SEARCH_DEFAULT_TIMEOUT_SECONDS = 90;
 
+/**
+ * Wall-clock time reserved before STARTING any extraction.
+ *
+ * Measured from real crawl_runs data (n=19): min 4.0s, p50 8.8s, p95 ~20s,
+ * max 43.3s. Extraction cost varies ~10x and cannot be bounded in advance, and
+ * an extraction in flight is never cancelled — so the reservation is based on
+ * the worst OBSERVED extraction, not an average or percentile. A p95 reservation
+ * would still be overrun by the 43.3s case.
+ *
+ * 45s = 43.3s observed max + 1.7s margin. Deliberately not larger: every extra
+ * second here directly removes search time from an already tight window.
+ */
+export const PROFILE_EXTRACTION_RESERVATION_SECONDS = 45;
+
+/** Configurable via PROFILE_EXTRACTION_RESERVATION_SECONDS. */
+export function getExtractionReservationSeconds(): number {
+    const raw = process.env.PROFILE_EXTRACTION_RESERVATION_SECONDS;
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    return PROFILE_EXTRACTION_RESERVATION_SECONDS;
+}
+
 /** Configurable via PROFILE_SEARCH_TIMEOUT_SECONDS. */
 export function getProfileSearchTimeoutSeconds(): number {
     const raw = process.env.PROFILE_SEARCH_TIMEOUT_SECONDS;

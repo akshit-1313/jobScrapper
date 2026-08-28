@@ -11,6 +11,7 @@ import {
     releaseDiscoveryLock,
     ExecutionBudget,
     getProfileSearchTimeoutSeconds,
+    getExtractionReservationSeconds,
 } from './discovery-lock';
 import { minSearchSpacingMs } from './adapters/firecrawl-adapter';
 
@@ -62,11 +63,21 @@ export type SourcesOverride = Array<{
     id: string; name?: string | null; base_url?: string | null;
 }>;
 
+/**
+ * Optional pre-flight check run immediately BEFORE each extraction.
+ *
+ * Returning false stops the run cleanly without starting that extraction.
+ * Supplied only by the profile-targeted path; M8 passes nothing, so when it is
+ * undefined the extraction loop behaves exactly as before.
+ */
+export type ExtractionGuard = () => boolean;
+
 export async function runJobDiscoveryForUser(
     userId: string,
     searchParams: Record<string, unknown> = { initiated_by: 'background_cron' },
     discoverOverride?: DiscoverOverride,
-    sourcesOverride?: SourcesOverride
+    sourcesOverride?: SourcesOverride,
+    extractionGuard?: ExtractionGuard
 ): Promise<{ runId: string, creditsUsed: number, pagesScraped: number, runError: boolean, unknownUsage: boolean }> {
     const adminClient = createAdminClient();
     const registry = new SourceAdapterRegistry();
@@ -134,6 +145,14 @@ export async function runJobDiscoveryForUser(
                     : await adapter.discover(source.base_url, searchLimit);
 
                 for (const candidate of discovered) {
+                    // Pre-flight execution-time check. Runs BEFORE createCrawlRun so a
+                    // skipped URL leaves no crawl_run and no job_source_mapping — it is
+                    // simply re-discovered on a later run. Undefined for M8.
+                    if (extractionGuard && !extractionGuard()) {
+                        console.warn('[Discovery] Extraction guard refused: insufficient execution budget remaining; stopping cleanly.');
+                        break;
+                    }
+
                     jobsDiscoveredCount++;
 
                     // Reject Cross-Domain arbitrarily crawled payloads strictly!
@@ -498,6 +517,26 @@ export async function runProfileTargetedDiscovery(
     let timedOut = false;
     let searchesAttempted = 0;
 
+    // Reserved before starting ANY extraction. Both the search guard and the
+    // extraction guard draw from the SAME ExecutionBudget clock, so the two can
+    // never sum past the total budget.
+    const extractionReservationMs = getExtractionReservationSeconds() * 1000;
+
+    /**
+     * Phase-3-only pre-flight check, passed into the shared runner. Refuses to
+     * start an extraction unless the worst observed extraction could still
+     * finish inside the budget.
+     */
+    const extractionGuard = () => {
+        if (budget.canAfford(extractionReservationMs)) return true;
+        timedOut = true;
+        console.warn(
+            `[ProfileTargeted] extraction refused after ${Math.round(budget.elapsedMs() / 1000)}s: ` +
+            `needs ${extractionReservationMs / 1000}s reservation, stopping cleanly`
+        );
+        return false;
+    };
+
     try {
     const resultsPerQuery = Math.max(
         1, Math.min(options.resultsPerQuery ?? PROFILE_SEARCH_DEFAULT_RESULTS_PER_QUERY, 20)
@@ -530,7 +569,7 @@ export async function runProfileTargetedDiscovery(
         }
 
         // Stop taking on new sources once the time budget is spent.
-        if (timedOut || !budget.canAfford(minSearchSpacingMs())) {
+        if (timedOut || !budget.canAfford(minSearchSpacingMs() + extractionReservationMs)) {
             timedOut = true;
             console.warn('[ProfileTargeted] execution budget exhausted; skipping remaining sources');
             return [];
@@ -566,10 +605,12 @@ export async function runProfileTargetedDiscovery(
         for (const strategy of strategies) {
             if (urlBudgetRemaining <= 0) break;
 
-            // Time guard: a search costs at least the rate-gate spacing (~6s).
-            // Checked BEFORE starting, so an in-flight request is never
-            // interrupted and no partial record is written.
-            if (!budget.canAfford(minSearchSpacingMs())) {
+            // Time guard. A search costs at least the rate-gate spacing (~6s),
+            // but it must ALSO leave room to extract whatever it finds —
+            // otherwise the run spends search credits on URLs the extraction
+            // guard will then refuse. Checked BEFORE starting, so an in-flight
+            // request is never interrupted.
+            if (!budget.canAfford(minSearchSpacingMs() + extractionReservationMs)) {
                 timedOut = true;
                 console.warn(
                     `[ProfileTargeted] execution budget exhausted after ${Math.round(budget.elapsedMs() / 1000)}s; ` +
@@ -636,7 +677,8 @@ export async function runProfileTargetedDiscovery(
             query_count: strategies.length,
         },
         override,
-        activeSources
+        activeSources,
+        extractionGuard
     );
 
     // Advance the rotation so the NEXT run picks up where this one left off.

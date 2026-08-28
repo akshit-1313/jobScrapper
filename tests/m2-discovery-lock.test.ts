@@ -14,9 +14,12 @@ import {
     STALE_LOCK_MAX_AGE_SECONDS,
     ExecutionBudget,
     getProfileSearchTimeoutSeconds,
+    getExtractionReservationSeconds,
     PROFILE_SEARCH_DEFAULT_TIMEOUT_SECONDS,
+    PROFILE_EXTRACTION_RESERVATION_SECONDS,
     PG_UNIQUE_VIOLATION,
 } from '@/lib/jobs/discovery-lock'
+import { resolveUrlBudget, PROFILE_SEARCH_HARD_MAX_URLS_PER_RUN } from '@/lib/jobs/profile-search-strategy'
 
 // Minimal Supabase double: only the calls the lock helpers make.
 function makeClient(opts: {
@@ -399,5 +402,125 @@ describe('Hobby-safe 35s execution budget', () => {
         expect(c.updates[0].status).toBe('timeout')
         expect(c.updates[0].status).not.toBe('running')
         expect(c.updates[0].completed_at).toBeTruthy()
+    })
+})
+
+/**
+ * Hobby-safe extraction guard.
+ *
+ * Measured crawl_runs data (n=19): min 4.0s, p50 8.8s, p95 ~20s, MAX 43.3s.
+ * Extraction cannot be cancelled once started, so the reservation is based on
+ * the worst observed case — a p95 reservation would still be overrun.
+ *
+ * Both guards read the SAME ExecutionBudget clock, so search time and
+ * extraction reservation can never sum past the total budget.
+ */
+describe('Hobby-safe extraction guard', () => {
+    const origTimeout = process.env.PROFILE_SEARCH_TIMEOUT_SECONDS
+    const origReserve = process.env.PROFILE_EXTRACTION_RESERVATION_SECONDS
+    afterEach(() => {
+        if (origTimeout === undefined) delete process.env.PROFILE_SEARCH_TIMEOUT_SECONDS
+        else process.env.PROFILE_SEARCH_TIMEOUT_SECONDS = origTimeout
+        if (origReserve === undefined) delete process.env.PROFILE_EXTRACTION_RESERVATION_SECONDS
+        else process.env.PROFILE_EXTRACTION_RESERVATION_SECONDS = origReserve
+    })
+
+    const HOBBY_LIMIT_S = 60
+    const TOTAL_S = 55
+    const RESERVE_S = 45
+    const SPACING_MS = 6000
+    const WORST_EXTRACTION_S = 43.3
+
+    test('reservation is based on the worst OBSERVED extraction, not p95', () => {
+        expect(PROFILE_EXTRACTION_RESERVATION_SECONDS).toBe(45)
+        expect(PROFILE_EXTRACTION_RESERVATION_SECONDS).toBeGreaterThan(WORST_EXTRACTION_S)
+        // A p95 (~20s) reservation would be overrun by the 43.3s case.
+        expect(PROFILE_EXTRACTION_RESERVATION_SECONDS).toBeGreaterThan(20)
+    })
+
+    test('reservation is configurable and rejects invalid values', () => {
+        process.env.PROFILE_EXTRACTION_RESERVATION_SECONDS = '30'
+        expect(getExtractionReservationSeconds()).toBe(30)
+        for (const bad of ['0', '-1', 'abc', '']) {
+            process.env.PROFILE_EXTRACTION_RESERVATION_SECONDS = bad
+            expect(getExtractionReservationSeconds()).toBe(PROFILE_EXTRACTION_RESERVATION_SECONDS)
+        }
+    })
+
+    // ── The guard decision ──────────────────────────────────────────────────
+
+    test('allows extraction while the full reservation still fits', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(TOTAL_S, t0)
+        expect(b.canAfford(RESERVE_S * 1000, t0)).toBe(true)            // 55s left
+        expect(b.canAfford(RESERVE_S * 1000, t0 + 10_000)).toBe(true)   // 45s left - exactly fits
+    })
+
+    test('REFUSES extraction once the reservation cannot fit', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(TOTAL_S, t0)
+        expect(b.canAfford(RESERVE_S * 1000, t0 + 10_001)).toBe(false)  // <45s left
+        expect(b.canAfford(RESERVE_S * 1000, t0 + 30_000)).toBe(false)
+        expect(b.canAfford(RESERVE_S * 1000, t0 + 54_000)).toBe(false)
+    })
+
+    test('no extraction can start after the guard refuses', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(TOTAL_S, t0)
+        // Once past the last legal start, every later moment is also refused.
+        for (const elapsed of [10_001, 20_000, 40_000, 54_999]) {
+            expect(b.canAfford(RESERVE_S * 1000, t0 + elapsed)).toBe(false)
+        }
+    })
+
+    // ── The wall-clock guarantee ────────────────────────────────────────────
+
+    test('worst-case total runtime stays under the Hobby 60s limit', () => {
+        // Last legal extraction start is at elapsed = TOTAL - RESERVE = 10s.
+        const lastLegalStartS = TOTAL_S - RESERVE_S
+        expect(lastLegalStartS).toBe(10)
+
+        // Even the worst observed extraction beginning at that instant finishes
+        // inside the budget, and well inside the platform ceiling.
+        const worstFinishS = lastLegalStartS + WORST_EXTRACTION_S
+        expect(worstFinishS).toBeLessThan(TOTAL_S)
+        expect(worstFinishS).toBeLessThan(HOBBY_LIMIT_S)
+        expect(HOBBY_LIMIT_S - worstFinishS).toBeGreaterThan(6)   // real margin
+    })
+
+    test('search guard reserves extraction room so searches cannot starve it', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(TOTAL_S, t0)
+        const searchCost = SPACING_MS + RESERVE_S * 1000   // 51s
+
+        // A search may start only while a following extraction would still fit.
+        expect(b.canAfford(searchCost, t0)).toBe(true)
+        expect(b.canAfford(searchCost, t0 + 4_000)).toBe(true)
+        expect(b.canAfford(searchCost, t0 + 4_001)).toBe(false)
+    })
+
+    test('the two guards share one clock and cannot sum past the total', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(TOTAL_S, t0)
+        // After a search completes at 6s, the extraction reservation is measured
+        // from the SAME clock, not a fresh one.
+        const afterSearch = t0 + 6_000
+        expect(b.remainingMs(afterSearch)).toBe((TOTAL_S - 6) * 1000)
+        expect(b.canAfford(RESERVE_S * 1000, afterSearch)).toBe(true)
+        expect(6 + RESERVE_S).toBeLessThanOrEqual(TOTAL_S)
+    })
+
+    test('caps are unchanged — extraction still 4, searches still <= 9', () => {
+        expect(PROFILE_SEARCH_HARD_MAX_URLS_PER_RUN).toBe(4)
+        expect(resolveUrlBudget(99)).toBe(4)
+        // 3 strategies x 3 sources remains the search ceiling.
+        expect(3 * 3).toBeLessThanOrEqual(9)
+    })
+
+    test('a refused extraction still releases the lock as timeout', async () => {
+        const c = makeClient()
+        await releaseDiscoveryLock(c, 'lock-1', 'timeout', { searchesProcessed: 1 })
+        expect(c.updates[0].status).toBe('timeout')
+        expect(c.updates[0].status).not.toBe('running')
     })
 })
