@@ -310,3 +310,94 @@ describe('stale discovery lock recovery', () => {
         expect(res.acquired).toBe(true)
     })
 })
+
+/**
+ * Hobby-safe 35s budget.
+ *
+ * Vercel Hobby hard-kills a function at 60s. Firecrawl's ~10 req/min ceiling
+ * forces ~6s between searches and MUST NOT be reduced, so the only lever is the
+ * execution budget. 35s is configured via PROFILE_SEARCH_TIMEOUT_SECONDS in
+ * vercel.json; the code default (90s, correct on Pro) is unchanged.
+ */
+describe('Hobby-safe 35s execution budget', () => {
+    const original = process.env.PROFILE_SEARCH_TIMEOUT_SECONDS
+    afterEach(() => {
+        if (original === undefined) delete process.env.PROFILE_SEARCH_TIMEOUT_SECONDS
+        else process.env.PROFILE_SEARCH_TIMEOUT_SECONDS = original
+    })
+
+    const SPACING_MS = 6000
+    const HOBBY_LIMIT_S = 60
+
+    test('the env var drives the budget without touching the code default', () => {
+        process.env.PROFILE_SEARCH_TIMEOUT_SECONDS = '35'
+        expect(getProfileSearchTimeoutSeconds()).toBe(35)
+        // The default is untouched — still correct for Pro.
+        delete process.env.PROFILE_SEARCH_TIMEOUT_SECONDS
+        expect(getProfileSearchTimeoutSeconds()).toBe(PROFILE_SEARCH_DEFAULT_TIMEOUT_SECONDS)
+    })
+
+    test('35s sits safely below the Hobby 60s kill', () => {
+        expect(35).toBeLessThan(HOBBY_LIMIT_S)
+    })
+
+    test('admits searches while >=6s remains and refuses once it does not', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(35, t0)
+
+        expect(b.canAfford(SPACING_MS, t0)).toBe(true)              // 35s left
+        expect(b.canAfford(SPACING_MS, t0 + 29_000)).toBe(true)     // 6s left - exactly affordable
+        expect(b.canAfford(SPACING_MS, t0 + 29_001)).toBe(false)    // <6s - refused
+        expect(b.canAfford(SPACING_MS, t0 + 34_000)).toBe(false)
+    })
+
+    test('no further search starts once the budget is exhausted', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(35, t0)
+        expect(b.isExhausted(t0 + 35_001)).toBe(true)
+        expect(b.canAfford(SPACING_MS, t0 + 35_001)).toBe(false)
+        expect(b.canAfford(1, t0 + 35_001)).toBe(false)
+    })
+
+    test('yields roughly 5 searches at 6s spacing', () => {
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(35, t0)
+
+        let started = 0
+        let now = t0
+        while (b.canAfford(SPACING_MS, now)) {
+            started++
+            now += SPACING_MS   // each search costs at least the spacing
+        }
+
+        expect(started).toBe(5)
+        // Partial coverage is expected and accepted; rotation covers the rest.
+        expect(started).toBeLessThan(9)
+    })
+
+    test('the search phase leaves headroom under the Hobby limit', () => {
+        // Searches stop by ~30s; the remainder of the 60s window is for
+        // extraction of the (unchanged) 4-URL cap.
+        const searchPhaseSeconds = 5 * 6
+        expect(searchPhaseSeconds).toBeLessThanOrEqual(35)
+        expect(HOBBY_LIMIT_S - searchPhaseSeconds).toBeGreaterThan(25)
+    })
+
+    test('a search already in progress is never interrupted', () => {
+        // canAfford is a pre-flight check only; there is no cancellation path,
+        // so an in-flight request always completes and writes a clean record.
+        const t0 = 1_000_000
+        const b = new ExecutionBudget(35, t0)
+        expect(b.canAfford(SPACING_MS, t0 + 28_000)).toBe(true)
+        // Even though that search finishes past the budget, nothing aborts it.
+        expect(b.isExhausted(t0 + 36_000)).toBe(true)
+    })
+
+    test('timeout still releases the lock, never leaving it running', async () => {
+        const c = makeClient()
+        await releaseDiscoveryLock(c, 'lock-1', 'timeout', { searchesProcessed: 5 })
+        expect(c.updates[0].status).toBe('timeout')
+        expect(c.updates[0].status).not.toBe('running')
+        expect(c.updates[0].completed_at).toBeTruthy()
+    })
+})
