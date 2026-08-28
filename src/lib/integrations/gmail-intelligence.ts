@@ -191,6 +191,23 @@ export async function processGmailIntelligence(userId: string, integrationId: st
                 result: resultPayload as unknown as Record<string, string | null>
             });
 
+        // Enqueue M10 deep extraction synchronously if the message is career-relevant
+        if (!insertError && classifyResult.type !== 'unknown') {
+            // Upsert or safely ignore duplicate using existing constraints implicitly
+            await adminSupabase.from('integration_tasks').insert({
+                user_id: userId,
+                integration_id: integrationId,
+                task_type: 'gmail_deep_extraction',
+                status: 'pending',
+                idempotency_key: `extracted_message:${msgId}`,
+                payload: {
+                    message_id: msgId,
+                    thread_id: threadId,
+                    matched_application_id: matchedAppId
+                }
+            });
+        }
+
         // Trigger notification asynchronously bypassing RLS only if confident match is detected
         // Defensible boundary: Never call update_application_status directly!
         if (!insertError && matchedAppId && classifyResult.type !== 'unknown' && classifyResult.type !== 'recruiter_contact') {

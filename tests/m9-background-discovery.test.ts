@@ -23,11 +23,19 @@ describe('M9.4 Background Discovery Worker', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         mockUpdate = jest.fn().mockReturnThis();
+        const mockEq = jest.fn().mockImplementation((field: string, value: any) => {
+            if (field === 'status' && value === 'active') {
+                return Promise.resolve({ data: [{ id: 'i1', user_id: 'u1' }], error: null });
+            }
+            return Promise.resolve({ error: null });
+        });
         mockAdminClient = {
             rpc: jest.fn(),
             from: jest.fn(() => ({
                 update: mockUpdate,
-                eq: jest.fn().mockResolvedValue({ error: null })
+                select: jest.fn().mockReturnThis(),
+                upsert: jest.fn().mockResolvedValue({ error: null }),
+                eq: mockEq
             }))
         };
         (createAdminClient as jest.Mock).mockReturnValue(mockAdminClient);

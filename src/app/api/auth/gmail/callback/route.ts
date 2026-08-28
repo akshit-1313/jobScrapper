@@ -3,7 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { google } from 'googleapis';
 import { cookies } from 'next/headers';
-
+import crypto from 'crypto';
 export async function GET(req: NextRequest) {
     // 1. Verify user authentication natively
     const supabase = await createClient();
@@ -78,8 +78,15 @@ export async function GET(req: NextRequest) {
                 provider_account_id: googleIdentity,
                 status: 'active',
                 scopes: tokens.scope ? tokens.scope.split(' ') : ['https://www.googleapis.com/auth/gmail.readonly'],
-                metadata: { email: googleIdentity, connected_at: new Date().toISOString() },
-                // Retain existing secret if not provided cleanly identical smartly neatly securely automatically organically smoothly conceptually smoothly solidly safely rationally successfully confidently wisely properly naturally smartly natively intelligently responsibly explicitly explicitly identically cleverly.
+                metadata: {
+                    email: googleIdentity,
+                    connected_at: new Date().toISOString(),
+                    // Secure token tracking to verify Vault doesn't corrupt it
+                    ...(tokens.refresh_token ? {
+                        token_hash: crypto.createHash('sha256').update(tokens.refresh_token).digest('hex')
+                    } : {})
+                },
+                // Retain existing secret if not provided
                 ...(secretId ? { secret_id: secretId } : {})
             }, {
                 onConflict: 'user_id,provider,provider_account_id'
