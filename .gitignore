@@ -39,3 +39,39 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# diagnostic / scratch artifacts from development sessions
+# (token-diag.log has contained real OAuth tokens — never commit)
+*.log
+token-diag.log
+db-state.json
+final.json
+extract.json
+err.json
+current_migrations.json
+lint.json
+diag-*.ts
+diag-*.txt
+smoke-*.txt
+smoke-*.ts
+live-smoke-test-*
+verify-m10-single-task.ts
+query-db.ts
+dump_errors.js
+parse_fails.js
+read-smoke-output.cjs
+test-output.txt
+jest_output.txt
+jest-*.txt
+lint-*.txt
+lint_output.txt
+*_error.txt
+push_fail.txt
+dry.txt
+dryrun.txt
+readable_error.txt
+tmp-*.ts
+tests/verify-*.js
+tests/verify-*.ts
+tests/send-test*
+tests/email-output.txt
