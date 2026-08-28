@@ -238,9 +238,26 @@ export async function uploadResume(formData: FormData): Promise<{
                     },
                     skills: [],
                     experience: [],
+                    engagements: [],
+                    education: [],
+                    certifications: [],
+                    raw_text: '',
                 },
                 version: versionData as ResumeVersion,
             }
+        }
+    }
+
+    // Persist the extracted text alongside the binary file. The original upload in
+    // storage is untouched. A failure here is non-fatal: the upload and parse both
+    // succeeded, and raw_text is supplementary. Never log the text itself.
+    if (parsedData.raw_text) {
+        const { error: rawTextError } = await supabase
+            .from('resume_versions')
+            .update({ raw_text: parsedData.raw_text })
+            .eq('id', versionData.id)
+        if (rawTextError) {
+            console.error('[uploadResume] Failed to persist raw_text (non-fatal):', rawTextError.message)
         }
     }
 
@@ -272,7 +289,7 @@ export async function confirmParsedProfile(formData: unknown): Promise<{
         return { success: false, error: 'Validation failed. Please check your inputs.' }
     }
 
-    const { profile, skills, experience } = result.data
+    const { profile, skills, experience, engagements, education, certifications } = result.data
 
     // ── Capture previous state BEFORE any mutation ──────────────────────────
     // This enables best-effort rollback if a later step fails.
@@ -385,6 +402,7 @@ export async function confirmParsedProfile(formData: unknown): Promise<{
         const skillRecords = skills.map(s => ({
             user_id: userId,
             skill_name: s.skill_name,
+            category: s.category ?? null,
             proficiency_level: s.proficiency_level || null,
             years_used: s.years_used ?? null,
             is_primary: s.is_primary ?? false,
@@ -425,6 +443,8 @@ export async function confirmParsedProfile(formData: unknown): Promise<{
             start_date: e.start_date || null,
             end_date: e.is_current ? null : (e.end_date || null),
             description: e.description || null,
+            responsibilities: e.responsibilities ?? [],
+            achievements: e.achievements ?? [],
             is_current: e.is_current ?? false,
             updated_at: new Date().toISOString(),
         }))
@@ -440,6 +460,91 @@ export async function confirmParsedProfile(formData: unknown): Promise<{
             await restoreSkills()
             await restoreProfile()
             return { success: false, error: 'Failed to save experience' }
+        }
+    }
+
+    // ── Step 3b: Replace client engagements ──────────────────────────────────
+    // Additive M5 structure, same non-blocking policy as education below.
+    const { error: engDeleteError } = await supabase
+        .from('candidate_engagements')
+        .delete()
+        .eq('user_id', userId)
+
+    if (engDeleteError) {
+        console.error('[confirmParsedProfile] Engagements delete error:', engDeleteError.message)
+    } else if (engagements.length > 0) {
+        const engRecords = engagements.map(e => ({
+            user_id: userId,
+            client_name: e.client_name,
+            parent_company: e.parent_company || null,
+            start_date: e.start_date || null,
+            end_date: e.is_current ? null : (e.end_date || null),
+            is_current: e.is_current ?? false,
+            responsibilities: e.responsibilities ?? [],
+            achievements: e.achievements ?? [],
+            technologies: e.technologies ?? [],
+            domains: e.domains ?? [],
+        }))
+        const { error: engInsertError } = await supabase
+            .from('candidate_engagements')
+            .insert(engRecords)
+        if (engInsertError) {
+            console.error('[confirmParsedProfile] Engagements insert error:', engInsertError.message)
+        }
+    }
+
+    // ── Step 4: Replace education ────────────────────────────────────────────
+    // Education and certifications are additive M5 structure. A failure here is
+    // reported but does NOT roll back profile/skills/experience — those are the
+    // fields M6 matching depends on, and partially-saved structure is preferable
+    // to discarding a successful profile write.
+    const { error: eduDeleteError } = await supabase
+        .from('candidate_education')
+        .delete()
+        .eq('user_id', userId)
+
+    if (eduDeleteError) {
+        console.error('[confirmParsedProfile] Education delete error:', eduDeleteError.message)
+    } else if (education.length > 0) {
+        const eduRecords = education.map(e => ({
+            user_id: userId,
+            institution: e.institution,
+            degree: e.degree || null,
+            field_of_study: e.field_of_study || null,
+            start_date: e.start_date || null,
+            end_date: e.end_date || null,
+            grade: e.grade || null,
+        }))
+        const { error: eduInsertError } = await supabase
+            .from('candidate_education')
+            .insert(eduRecords)
+        if (eduInsertError) {
+            console.error('[confirmParsedProfile] Education insert error:', eduInsertError.message)
+        }
+    }
+
+    // ── Step 5: Replace certifications ───────────────────────────────────────
+    const { error: certDeleteError } = await supabase
+        .from('candidate_certifications')
+        .delete()
+        .eq('user_id', userId)
+
+    if (certDeleteError) {
+        console.error('[confirmParsedProfile] Certifications delete error:', certDeleteError.message)
+    } else if (certifications.length > 0) {
+        const certRecords = certifications.map(c => ({
+            user_id: userId,
+            name: c.name,
+            issuer: c.issuer || null,
+            issue_date: c.issue_date || null,
+            expiry_date: c.expiry_date || null,
+            credential_id: c.credential_id || null,
+        }))
+        const { error: certInsertError } = await supabase
+            .from('candidate_certifications')
+            .insert(certRecords)
+        if (certInsertError) {
+            console.error('[confirmParsedProfile] Certifications insert error:', certInsertError.message)
         }
     }
 

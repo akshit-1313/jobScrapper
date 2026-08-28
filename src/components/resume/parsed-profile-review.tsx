@@ -51,7 +51,7 @@ export function ParsedProfileReview({ parsedData, onConfirmed, onDismiss }: Pars
     }
 
     const addSkill = () => {
-        setSkills([...skills, { skill_name: '', proficiency_level: null, years_used: null, is_primary: false }])
+        setSkills([...skills, { skill_name: '', category: 'other', proficiency_level: null, years_used: null, is_primary: false }])
     }
 
     const removeSkill = (index: number) => {
@@ -67,7 +67,8 @@ export function ParsedProfileReview({ parsedData, onConfirmed, onDismiss }: Pars
     const addExperience = () => {
         setExperience([...experience, {
             company_name: '', title: '', start_date: null, end_date: null,
-            description: null, is_current: false,
+            description: null, responsibilities: [], achievements: [],
+            is_current: false, duration_months: null,
         }])
     }
 
