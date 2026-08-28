@@ -2,6 +2,12 @@ import { createClient } from '@/utils/supabase/server'
 import { JobCard } from '@/components/job-card'
 import { JobWithLocationsAndSkills, JobMatchRecord } from '@/lib/types/jobs'
 import { JobSearchFilters } from './job-search-filters'
+import {
+    rankJobsByRelevance,
+    extractUserMatch,
+    countMatched,
+    type UserMatch,
+} from '@/lib/jobs/job-ranking'
 import { SaveSearchButton } from './save-search-button' // Optional button I will add to save searches
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
@@ -13,7 +19,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     const workMode = typeof params.work_mode === 'string' ? params.work_mode : ''
     const employmentType = typeof params.employment_type === 'string' ? params.employment_type : ''
     const salaryMin = typeof params.salary_min === 'string' ? parseInt(params.salary_min, 10) : NaN
-    const sort = typeof params.sort === 'string' ? params.sort : 'newest'
+    // Relevance is the default: after "Find matching jobs", the most relevant
+    // results should lead. Other sorts remain available explicitly.
+    const sort = typeof params.sort === 'string' ? params.sort : 'relevance'
 
     const country = typeof params.country === 'string' ? params.country : ''
     const city = typeof params.city === 'string' ? params.city : ''
@@ -30,7 +38,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             *,
             job_locations(city, state, country, remote_region),
             job_skills(skill_name, is_required),
-            job_matches(overall_score, user_id)
+            job_matches(
+                user_id, overall_score, skills_score, experience_score, role_score,
+                location_score, work_mode_score,
+                matching_skills, missing_required_skills,
+                positive_reasons, concerns, recommendation
+            )
     `;
 
     if (country || city) {
@@ -82,9 +95,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     } else if (sort === 'salary_high') {
         // nullsFirst false keeps un-salaried jobs at bottom
         query = query.order('salary_max', { ascending: false, nullsFirst: false });
-    } else if (sort === 'match_score') {
-        // use computed column 'match_score' on table jobs via postgres function match_score(jobs)
-        query = query.order('match_score', { ascending: false, nullsFirst: false });
+    } else if (sort === 'relevance' || sort === 'match_score') {
+        // Relevance is per-user and lives in job_matches, which PostgREST cannot
+        // order the parent rows by. Fetch newest-first for a stable, deterministic
+        // page, then rank in-process via rankJobsByRelevance().
+        query = query.order('discovered_at', { ascending: false });
     }
 
     // Explicit limits mapping UI
@@ -100,21 +115,25 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id;
 
-    const displayJobs = (jobs || []).map((j: unknown) => {
-        const jobRecord = j as JobWithLocationsAndSkills & { job_matches?: JobMatchRecord[] };
-        let match_score = undefined;
-        if (jobRecord.job_matches && Array.isArray(jobRecord.job_matches)) {
-            // Find match for current user (RLS generally protects this, but check user_id just in case)
-            const match = jobRecord.job_matches.find((m: JobMatchRecord) => userId && m.user_id === userId);
-            if (match && typeof match.overall_score === 'number') {
-                match_score = match.overall_score;
-            }
-        }
-        return {
-            ...jobRecord,
-            match_score
-        };
-    }) as unknown as JobWithLocationsAndSkills[];
+    // Attach the current user's M6 match (if any) and order by relevance.
+    // The score is read from job_matches, never recomputed here.
+    const rawJobs = (jobs || []) as unknown as Array<
+        JobWithLocationsAndSkills & { job_matches?: JobMatchRecord[] }
+    >;
+
+    const ranked = rankJobsByRelevance(rawJobs, userId);
+    const matchedCount = countMatched(rawJobs, userId);
+
+    // Non-relevance sorts keep the order the database returned.
+    const ordered = (sort === 'relevance' || sort === 'match_score')
+        ? ranked
+        : rawJobs.map(job => ({ job, match: extractUserMatch(job, userId) }));
+
+    const displayJobs = ordered.map(({ job, match }) => ({
+        ...job,
+        match_score: match?.overall_score,
+        user_match: match,
+    })) as unknown as Array<JobWithLocationsAndSkills & { user_match: UserMatch | null }>;
 
     return (
         <div className="space-y-8 pb-12">

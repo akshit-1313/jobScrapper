@@ -3,6 +3,8 @@ import { ProfileForm } from '@/components/profile/profile-form'
 import { SkillsForm } from '@/components/profile/skills-form'
 import { ExperienceForm } from '@/components/profile/experience-form'
 import { ResumeSection } from '@/components/resume/resume-section'
+import { StructuredProfile } from '@/components/profile/structured-profile'
+import { FindJobsButton } from '@/components/profile/find-jobs-button'
 import { redirect } from 'next/navigation'
 import type { ResumeVersion } from '@/lib/types/resume'
 
@@ -15,16 +17,27 @@ export default async function ProfilePage() {
     }
 
     // Parallel fetch for speed
-    const [profileRes, skillsRes, expRes, resumeRes] = await Promise.all([
+    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('user_id', authData.user.id).single(),
         supabase.from('candidate_skills').select('*').eq('user_id', authData.user.id),
         supabase.from('candidate_experience').select('*').eq('user_id', authData.user.id),
         supabase.from('resumes').select('*, resume_versions(*)').eq('user_id', authData.user.id).single(),
+        supabase.from('candidate_engagements').select('*').eq('user_id', authData.user.id).order('start_date', { ascending: false }),
+        supabase.from('candidate_education').select('*').eq('user_id', authData.user.id).order('end_date', { ascending: false }),
+        supabase.from('candidate_certifications').select('*').eq('user_id', authData.user.id).order('issue_date', { ascending: false }),
     ])
 
     const profileData = profileRes.data || null
     const skillsData = skillsRes.data || []
     const expData = expRes.data || []
+    const engagementsData = engRes.data || []
+    const educationData = eduRes.data || []
+    const certificationsData = certRes.data || []
+
+    // Drives whether the manual job search is available — searches are built
+    // from this data, so an empty profile has nothing to search with.
+    const hasProfileData =
+        skillsData.length > 0 || expData.length > 0 || !!profileData?.headline
 
     // Extract resume versions from the resume record
     const resumeVersions: ResumeVersion[] = resumeRes.data
@@ -42,9 +55,23 @@ export default async function ProfilePage() {
             </div>
 
             <div className="mt-8 space-y-8">
-                {/* Resume section above profile forms */}
+                {/* 1. Upload / confirm resume */}
                 <ResumeSection initialVersions={resumeVersions} />
 
+                {/* 2. Structured profile parsed from the resume (read-only) */}
+                <StructuredProfile
+                    headline={profileData?.headline ?? null}
+                    skills={skillsData}
+                    experience={expData}
+                    engagements={engagementsData}
+                    education={educationData}
+                    certifications={certificationsData}
+                />
+
+                {/* 3. Explicit, user-triggered job search + matching */}
+                <FindJobsButton hasProfileData={hasProfileData} />
+
+                {/* Editable forms */}
                 <ProfileForm initialData={profileData} />
                 <SkillsForm initialSkills={skillsData} />
                 <ExperienceForm initialExperience={expData} />

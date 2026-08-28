@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import FirecrawlApp from '@mendable/firecrawl-js';
-import { JobSourceAdapter, DiscoveredURL, ExtractionResult } from './types';
+import { JobSourceAdapter, DiscoveredURL, ExtractionResult, SearchOptions } from './types';
 
 /**
  * Recursively serialises a value to a stable JSON string where every plain
@@ -33,6 +33,89 @@ export function stableStringify(value: unknown): string {
 }
 
 // The adapter ensures we do not leak generic Firecrawl imports or keys into the rest of the app.
+// ── Search rate limiting ────────────────────────────────────────────────────
+//
+// Firecrawl enforces a per-minute request ceiling. A live run previously fired
+// 30 sequential search calls inside one window and 20 returned
+// "Rate limit exceeded".
+//
+// The gate below serializes AND spaces every search request. It is module-level
+// on purpose: two overlapping discovery runs in the same process share one
+// chain, so concurrency cannot defeat the spacing.
+//
+// NOTE: this is per-process. It does not coordinate across separate server
+// instances — the source cap in discovery-service is what keeps a single run
+// comfortably inside the budget.
+
+export const DEFAULT_SEARCH_REQUESTS_PER_MINUTE = 10;
+
+/** Configurable without touching the adapter: FIRECRAWL_SEARCH_RPM. */
+export function getSearchRequestsPerMinute(): number {
+    const raw = process.env.FIRECRAWL_SEARCH_RPM;
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    return DEFAULT_SEARCH_REQUESTS_PER_MINUTE;
+}
+
+/** Minimum milliseconds between two search requests. */
+export function minSearchSpacingMs(): number {
+    return Math.ceil(60_000 / getSearchRequestsPerMinute());
+}
+
+let searchChain: Promise<void> = Promise.resolve();
+let lastSearchAt = 0;
+
+/** Test seam — resets the shared gate between cases. */
+export function __resetSearchRateGate(): void {
+    searchChain = Promise.resolve();
+    lastSearchAt = 0;
+}
+
+/**
+ * Wait for a slot in the shared search-rate budget.
+ *
+ * Every caller queues on one promise chain, so requests are strictly ordered
+ * and separated by at least `minSearchSpacingMs()`. This throttles; it never
+ * retries a rejected request.
+ */
+async function acquireSearchSlot(): Promise<void> {
+    const spacing = minSearchSpacingMs();
+
+    const slot = searchChain.then(async () => {
+        const waitMs = lastSearchAt + spacing - Date.now();
+        if (waitMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, waitMs));
+        }
+        lastSearchAt = Date.now();
+    });
+
+    // Keep the chain alive even if a caller throws downstream.
+    searchChain = slot.catch(() => undefined);
+    return slot;
+}
+
+function isBlank(value: unknown): boolean {
+    return typeof value !== 'string' || value.trim().length === 0;
+}
+
+/**
+ * True when an extraction carries enough signal to be a real job posting.
+ *
+ * Aggregator and listing pages scrape successfully but yield nothing: the
+ * extractor is instructed to return empty strings when a page is not a job
+ * posting, and those empties were previously defaulted to
+ * "Unknown Title" / "Unknown Company" and persisted as real jobs.
+ *
+ * The bar is deliberately low — ANY of title, company or description being
+ * present is enough — so partial-but-genuine postings still pass. Only a
+ * completely empty extraction is rejected.
+ */
+export function hasUsableJobData(payload: {
+    title?: unknown; company?: unknown; description?: unknown;
+}): boolean {
+    return !(isBlank(payload.title) && isBlank(payload.company) && isBlank(payload.description));
+}
+
 export class FirecrawlAdapter implements JobSourceAdapter {
     private app: FirecrawlApp;
 
@@ -106,13 +189,110 @@ export class FirecrawlAdapter implements JobSourceAdapter {
         }
     }
 
+    /**
+     * Query-driven discovery, restricted to allow-listed domains.
+     *
+     * The domain restriction is applied TWICE by design:
+     *   1. server-side via Firecrawl's `includeDomains`, so off-list results are
+     *      never returned and never billed;
+     *   2. client-side below, because a provider response is never trusted to
+     *      have honoured the constraint.
+     *
+     * This preserves the M2.2 cross-domain boundary — `isDomainAllowed` in the
+     * discovery service still runs downstream and is not weakened.
+     */
+    async searchJobs(query: string, options: SearchOptions): Promise<DiscoveredURL[]> {
+        // An empty allow-list must never mean "search the whole web".
+        if (!options.includeDomains || options.includeDomains.length === 0) {
+            console.error('[FirecrawlAdapter] searchJobs refused: empty domain allow-list');
+            return [];
+        }
+
+        const limit = Math.max(1, Math.min(options.limit ?? 5, 20));
+
+        // Throttle before every outbound search. Never retries — a rate-limited
+        // request still degrades to [] via the catch below.
+        await acquireSearchSlot();
+
+        try {
+            const response = await (this.app.search(query, {
+                limit,
+                sources: ['web'],
+                includeDomains: options.includeDomains,
+            }) as Promise<unknown>);
+
+            if (response === null || response === undefined || typeof response !== 'object' || Array.isArray(response)) {
+                console.error('[FirecrawlAdapter] searchJobs: unexpected response type:', typeof response);
+                return [];
+            }
+
+            const webResults: unknown = (response as Record<string, unknown>).web ?? [];
+            if (!Array.isArray(webResults)) {
+                console.error('[FirecrawlAdapter] searchJobs: response.web is not an array');
+                return [];
+            }
+
+            const allowed = new Set(options.includeDomains.map(d => d.toLowerCase()));
+            const discovered: DiscoveredURL[] = [];
+            const seen = new Set<string>();
+
+            for (const item of webResults) {
+                if (!item || typeof item !== 'object') continue;
+                const urlStr = (item as Record<string, unknown>).url;
+                if (typeof urlStr !== 'string' || !urlStr) continue;
+
+                let hostname: string;
+                try {
+                    hostname = new URL(urlStr).hostname.toLowerCase();
+                } catch {
+                    console.warn('[FirecrawlAdapter] searchJobs: skipping malformed URL');
+                    continue;
+                }
+
+                // Client-side re-validation: exact host or a subdomain of an allowed host.
+                const permitted = [...allowed].some(
+                    d => hostname === d || hostname.endsWith(`.${d}`)
+                );
+                if (!permitted) {
+                    console.warn(`[FirecrawlAdapter] searchJobs: rejected off-allow-list host ${hostname}`);
+                    continue;
+                }
+
+                if (seen.has(urlStr)) continue;
+                seen.add(urlStr);
+
+                discovered.push({ url: urlStr, sourceDomain: hostname });
+            }
+
+            // Observability for credit accounting: how many results the provider
+            // returned vs how many survived allow-list validation.
+            console.log(
+                `[FirecrawlAdapter] searchJobs done raw=${webResults.length} ` +
+                `accepted=${discovered.length} rejected=${webResults.length - discovered.length}`
+            );
+
+            return discovered;
+
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error('[FirecrawlAdapter] searchJobs threw error:', msg);
+            return [];
+        }
+    }
+
     async extract(jobUrl: string): Promise<ExtractionResult> {
         try {
             const prompt = `Extract the exact details of this job posting. Format strictly into JSON with NO OTHER TEXT containing exactly: title, company, description, rawPayload (any other unmapped metadata detected). If it's not a job posting, return empty strings.`;
 
-            const scrapeResult = await (this.app.scrapeUrl(jobUrl, {
-                formats: ['extract'],
-                extract: {
+            // Firecrawl v2 request shape (@mendable/firecrawl-js v4):
+            //   formats: [{ type: 'json', prompt, schema }]
+            //
+            // The former v1 shape (formats: ['extract'] + a sibling `extract`
+            // object) is rejected by the v2 endpoint with
+            // "Unrecognized key in body", which failed every extraction.
+            const scrapeResult = await (this.app.scrape(jobUrl, {
+                formats: [{
+                    type: 'json',
                     prompt,
                     schema: {
                         type: 'object',
@@ -124,18 +304,21 @@ export class FirecrawlAdapter implements JobSourceAdapter {
                         },
                         required: ['title', 'company', 'description']
                     }
-                },
-            } as unknown as Record<string, unknown>) as Promise<unknown>);
+                }],
+            }) as Promise<unknown>);
 
             const resultObj = scrapeResult as Record<string, unknown>;
 
+            // v2 scrape() resolves to a Document and throws on failure, but a
+            // v1-style error envelope is still tolerated defensively.
             if (resultObj && resultObj.success === false) {
                 const errMsg = typeof resultObj.error === 'string' ? resultObj.error : 'Unknown firecrawl extraction failure';
                 return { success: false, error: errMsg };
             }
 
-            // Validate the extracted payload is actually an object
-            const rawExtract: unknown = resultObj?.extract ?? resultObj?.data;
+            // v2 returns the structured result on `json`. `extract` / `data` are
+            // accepted as fallbacks so a v1-shaped response still parses.
+            const rawExtract: unknown = resultObj?.json ?? resultObj?.extract ?? resultObj?.data;
             const payload: { title?: string; company?: string; description?: string; rawPayload?: unknown } =
                 rawExtract !== null && typeof rawExtract === 'object' && !Array.isArray(rawExtract)
                     ? (rawExtract as { title?: string; company?: string; description?: string; rawPayload?: unknown })
@@ -143,6 +326,18 @@ export class FirecrawlAdapter implements JobSourceAdapter {
 
             const metadataPayload = resultObj?.metadata as Record<string, unknown> | undefined;
             const actualCreditsUsed = metadataPayload?.creditsUsed as number | undefined;
+
+            // Validation gate: reject a non-job page BEFORE any placeholder is
+            // manufactured, so it can never reach JobNormalizer or the jobs table.
+            // Reuses the existing ExtractionResult failure channel, which
+            // discovery-service already handles via markCrawlRunFailed.
+            if (!hasUsableJobData(payload)) {
+                return {
+                    success: false,
+                    creditsUsed: actualCreditsUsed,
+                    error: 'Invalid extraction: no job data found (title, company and description all empty) — likely a listing or aggregator page, not a job posting',
+                };
+            }
 
             // Normalize rawPayload: only accept a plain object, otherwise fall back to {}
             const rawPayloadNorm: Record<string, unknown> =

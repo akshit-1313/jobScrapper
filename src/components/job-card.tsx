@@ -2,8 +2,17 @@ import Link from 'next/link'
 import { MapPin, Briefcase, DollarSign, Building } from 'lucide-react'
 import { JobWithLocationsAndSkills } from '@/lib/types/jobs'
 import { formatDistanceToNow } from 'date-fns'
+import { matchTier, matchReasons, type UserMatch } from '@/lib/jobs/job-ranking'
 
-export function JobCard({ job }: { job: JobWithLocationsAndSkills }) {
+const TIER_BADGE: Record<string, string> = {
+    strong: 'bg-gradient-to-r from-emerald-600 to-green-600',
+    good: 'bg-gradient-to-r from-blue-600 to-indigo-600',
+    possible: 'bg-gradient-to-r from-amber-500 to-orange-500',
+    weak: 'bg-slate-400',
+}
+
+export function JobCard({ job }: { job: JobWithLocationsAndSkills & { user_match?: UserMatch | null } }) {
+    const reasons = matchReasons(job.user_match ?? null)
     const formatSalary = () => {
         if (!job.salary_min && !job.salary_max) return null
 
@@ -32,9 +41,16 @@ export function JobCard({ job }: { job: JobWithLocationsAndSkills }) {
         <Link href={`/jobs/${job.id}`} className="block">
             <div className="glass-panel group relative rounded-xl p-6 transition-all hover:-translate-y-1 hover:shadow-md cursor-pointer">
 
-                {job.match_score !== undefined && (
-                    <div className="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1 text-xs font-bold text-white shadow-sm">
-                        {job.match_score}% Match
+                {typeof job.match_score === 'number' ? (
+                    <div
+                        className={`absolute -top-3 right-6 rounded-full px-3 py-1 text-xs font-bold text-white shadow-sm ${TIER_BADGE[matchTier(job.match_score).tier]}`}
+                        title={`${matchTier(job.match_score).label} — scored by your profile`}
+                    >
+                        {Math.round(job.match_score)}% · {matchTier(job.match_score).label}
+                    </div>
+                ) : (
+                    <div className="absolute -top-3 right-6 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500 shadow-sm">
+                        Not yet matched
                     </div>
                 )}
 
@@ -78,6 +94,23 @@ export function JobCard({ job }: { job: JobWithLocationsAndSkills }) {
                                         +{job.job_skills.length - 4} more
                                     </span>
                                 )}
+                            </div>
+                        )}
+
+                        {/* Why this matched — taken verbatim from the stored M6
+                            match record. Nothing is inferred here. */}
+                        {reasons.length > 0 && (
+                            <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2">
+                                <p className="text-[11px] font-medium uppercase tracking-wide text-emerald-700">
+                                    Why this matches you
+                                </p>
+                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {reasons.map((r, idx) => (
+                                        <span key={idx} className="rounded bg-white border border-emerald-200 px-1.5 py-0.5 text-xs text-emerald-800">
+                                            {r}
+                                        </span>
+                                    ))}
+                                </div>
                             </div>
                         )}
 

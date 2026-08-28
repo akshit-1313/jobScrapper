@@ -17,7 +17,7 @@ export function JobSearchFilters() {
     const [q, setQ] = useState(searchParams.get('q') || '');
     const [workMode, setWorkMode] = useState(searchParams.get('work_mode') || '');
     const [employmentType, setEmploymentType] = useState(searchParams.get('employment_type') || '');
-    const [sort, setSort] = useState(searchParams.get('sort') || 'newest');
+    const [sort, setSort] = useState(searchParams.get('sort') || 'relevance');
 
     // Advanced
     const [country, setCountry] = useState(searchParams.get('country') || '');
@@ -39,7 +39,7 @@ export function JobSearchFilters() {
         if (q) params.set('q', q); else params.delete('q');
         if (workMode) params.set('work_mode', workMode); else params.delete('work_mode');
         if (employmentType) params.set('employment_type', employmentType); else params.delete('employment_type');
-        if (sort && sort !== 'newest') params.set('sort', sort); else params.delete('sort');
+        if (sort && sort !== 'relevance') params.set('sort', sort); else params.delete('sort');
 
         // Advanced mapping exactly matching schema limits
         if (country) params.set('country', country); else params.delete('country');
@@ -135,8 +135,8 @@ export function JobSearchFilters() {
                     <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 focus-within:ring-2 ring-blue-500">
                         <Filter className="w-4 h-4 text-slate-400 mr-2" />
                         <select value={sort} onChange={(e) => setSort(e.target.value)} className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none appearance-none flex-1 py-1">
+                            <option value="relevance">Best Match</option>
                             <option value="newest">Newest First</option>
-                            <option value="match_score">Highest Match</option>
                             <option value="recently_discovered">Recently Discovered</option>
                             <option value="salary_high">Highest Salary</option>
                         </select>

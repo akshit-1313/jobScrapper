@@ -4,6 +4,15 @@ import { getActiveJobSources } from './job-source-service';
 import { createSearchRun, completeSearchRunWithStats, createCrawlRun, markCrawlRunCompleted, markCrawlRunFailed, markCrawlRunRunning } from './crawl-service';
 import { SourceAdapterRegistry } from './adapters/source-adapter-registry';
 import { JobNormalizer } from './job-normalizer';
+import { DiscoveredURL } from './adapters/types';
+import { buildSearchStrategies, SearchStrategy, resolveUrlBudget } from './profile-search-strategy';
+import {
+    acquireDiscoveryLock,
+    releaseDiscoveryLock,
+    ExecutionBudget,
+    getProfileSearchTimeoutSeconds,
+} from './discovery-lock';
+import { minSearchSpacingMs } from './adapters/firecrawl-adapter';
 
 /**
  * Validates that a discovered candidate URL strictly belongs to the permitted root domain.
@@ -27,7 +36,38 @@ function isDomainAllowed(candidateUrlStr: string, allowedHost: string): boolean 
  * Internal trusted executor bound to a specific user. 
  * Should only be called by fully trusted backend services.
  */
-export async function runJobDiscoveryForUser(userId: string, searchParams: Record<string, unknown> = { initiated_by: 'background_cron' }): Promise<{ runId: string, creditsUsed: number, pagesScraped: number, runError: boolean, unknownUsage: boolean }> {
+/**
+ * Optional replacement for the default per-source URL discovery step.
+ *
+ * Supplied by the profile-targeted path so query-driven results flow through
+ * the EXISTING extraction, normalization, dedup, source-tracking and credit
+ * accounting pipeline unchanged. Everything downstream of URL discovery —
+ * including the isDomainAllowed cross-domain check — is untouched.
+ */
+export type DiscoverOverride = (
+    source: { id: string; name?: string | null; base_url?: string | null },
+    limit: number
+) => Promise<DiscoveredURL[]>;
+
+/**
+ * Optional pre-fetched source list.
+ *
+ * getActiveJobSources() uses the cookie-scoped server client, so it only works
+ * inside a Next.js request context. Supplying the sources directly lets trusted
+ * server-side callers (and offline measurement runs) execute outside a request
+ * scope. It does NOT widen the allow-list: callers pass the same active
+ * job_sources rows read from the database.
+ */
+export type SourcesOverride = Array<{
+    id: string; name?: string | null; base_url?: string | null;
+}>;
+
+export async function runJobDiscoveryForUser(
+    userId: string,
+    searchParams: Record<string, unknown> = { initiated_by: 'background_cron' },
+    discoverOverride?: DiscoverOverride,
+    sourcesOverride?: SourcesOverride
+): Promise<{ runId: string, creditsUsed: number, pagesScraped: number, runError: boolean, unknownUsage: boolean }> {
     const adminClient = createAdminClient();
     const registry = new SourceAdapterRegistry();
     let searchRunId = "";
@@ -46,7 +86,7 @@ export async function runJobDiscoveryForUser(userId: string, searchParams: Recor
         searchRunId = searchRun.id;
 
         // 2. Fetch Allow-listed active sources & map them securely against the requested selected SavedSearch Target correctly efficiently explicitly.
-        const allSources = await getActiveJobSources();
+        const allSources = sourcesOverride ?? await getActiveJobSources();
         let sources = allSources;
 
         if (searchParams.saved_search_id) {
@@ -89,7 +129,9 @@ export async function runJobDiscoveryForUser(userId: string, searchParams: Recor
                 // Passed search limits if configured
                 const searchLimit = (searchParams.limit as number) || 5;
                 const sourceRootDomain = new URL(source.base_url).hostname;
-                const discovered = await adapter.discover(source.base_url, searchLimit);
+                const discovered = discoverOverride
+                    ? await discoverOverride(source, searchLimit)
+                    : await adapter.discover(source.base_url, searchLimit);
 
                 for (const candidate of discovered) {
                     jobsDiscoveredCount++;
@@ -288,6 +330,354 @@ export async function runJobDiscoveryForUser(userId: string, searchParams: Recor
             });
         }
         throw criticalFailure;
+    }
+}
+
+// ── Profile-targeted discovery (M5 profile → targeted queries → M2 pipeline) ──
+
+export interface ProfileTargetedOptions {
+    /** Hard cap on generated queries. Bounds credit spend. */
+    maxQueries?: number;
+    /** Results requested per query, per source. */
+    resultsPerQuery?: number;
+    /**
+     * Run-wide ceiling on URLs handed to extraction.
+     *
+     * This is the primary cost control. Without it, queries × sources × results
+     * multiply: 3 queries across 10 sources at 5 results each is 150 extractions
+     * in a single run. Extraction is the expensive operation, so the run-wide
+     * budget — not the per-query limit — is what actually bounds spend.
+     */
+    maxUrlsPerRun?: number;
+    /**
+     * Optional PER-RUN restriction to a subset of the already-active sources,
+     * by hostname. This narrows a single run (e.g. to reliably-scrapable ATS
+     * domains for a cost measurement); it does NOT alter the permanent
+     * job_sources allow-list and cannot widen it — a host not already active
+     * is still never searched.
+     */
+    sourceHostAllowList?: string[];
+    /**
+     * Sources searched in this run. Defaults to getMaxSourcesPerRun().
+     * Lower values reduce search calls; the rotation still covers every source
+     * across successive runs.
+     */
+    maxSourcesPerRun?: number;
+    /** Execution budget in seconds. Defaults to getProfileSearchTimeoutSeconds(). */
+    timeoutSeconds?: number;
+}
+
+export const PROFILE_SEARCH_DEFAULT_MAX_QUERIES = 3;
+export const PROFILE_SEARCH_DEFAULT_RESULTS_PER_QUERY = 5;
+
+/**
+ * Sources searched per run.
+ *
+ * Search calls are queries × sources. With 10 active sources and 3 strategies
+ * a run fired 30 calls into a ~10/min ceiling and two thirds were rejected.
+ * Capping sources is the primary control: 3 sources × 3 queries = 9 calls,
+ * inside the budget with headroom.
+ *
+ * Coverage is not lost — sources rotate by last_crawled_at, so every source is
+ * reached across successive runs.
+ *
+ * Configurable via PROFILE_SEARCH_MAX_SOURCES.
+ */
+export const PROFILE_SEARCH_DEFAULT_MAX_SOURCES_PER_RUN = 3;
+
+export function getMaxSourcesPerRun(): number {
+    const raw = process.env.PROFILE_SEARCH_MAX_SOURCES;
+    const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    return PROFILE_SEARCH_DEFAULT_MAX_SOURCES_PER_RUN;
+}
+
+// The run-wide URL budget and its hard ceiling live in profile-search-strategy
+// so they can be unit-tested; re-exported here for callers of this module.
+export {
+    PROFILE_SEARCH_DEFAULT_MAX_URLS_PER_RUN,
+    PROFILE_SEARCH_HARD_MAX_URLS_PER_RUN,
+} from './profile-search-strategy';
+
+/**
+ * Load the structured candidate profile and derive targeted search queries.
+ * Read-only. Touches only candidate_* tables — never applications or
+ * application_events.
+ */
+export async function buildStrategiesForUser(
+    userId: string,
+    options: ProfileTargetedOptions = {}
+): Promise<SearchStrategy[]> {
+    const adminClient = createAdminClient();
+
+    const [profileRes, skillsRes, expRes, engRes, prefsRes] = await Promise.all([
+        adminClient.from('profiles').select('headline, years_of_experience, current_location').eq('user_id', userId).maybeSingle(),
+        adminClient.from('candidate_skills').select('skill_name, category, is_primary').eq('user_id', userId),
+        adminClient.from('candidate_experience').select('title, is_current').eq('user_id', userId),
+        adminClient.from('candidate_engagements').select('technologies, domains').eq('user_id', userId),
+        adminClient.from('candidate_preferences').select('desired_roles, excluded_roles, geographic_preferences').eq('user_id', userId).maybeSingle(),
+    ]);
+
+    return buildSearchStrategies(
+        {
+            profile: profileRes.data ?? null,
+            skills: skillsRes.data ?? [],
+            experience: expRes.data ?? [],
+            engagements: engRes.data ?? [],
+            preferences: prefsRes.data ?? null,
+        },
+        { maxQueries: options.maxQueries ?? PROFILE_SEARCH_DEFAULT_MAX_QUERIES }
+    );
+}
+
+/**
+ * Profile-targeted job discovery.
+ *
+ * Resume → structured profile → targeted queries → Firecrawl search restricted
+ * to the EXISTING allow-listed job_sources domains → the existing normalization,
+ * dedup, source-tracking and M6 matching pipeline.
+ *
+ * Nothing in M2/M2.2 normalization or M6 matching is bypassed or rewritten: the
+ * only change is where candidate URLs come from. Results already seen for a
+ * source are skipped so the same postings are not re-crawled.
+ */
+export async function runProfileTargetedDiscovery(
+    userId: string,
+    options: ProfileTargetedOptions = {}
+): Promise<{
+    runId: string; creditsUsed: number; pagesScraped: number;
+    runError: boolean; unknownUsage: boolean;
+    strategies: SearchStrategy[];
+    sourcesSearched: number;
+    /** Set when another cycle already held the lock. No external work was done. */
+    concurrencyAborted?: boolean;
+    /** Set when the execution budget stopped the run early. */
+    timedOut?: boolean;
+}> {
+    const adminClient = createAdminClient();
+    const strategies = await buildStrategiesForUser(userId, options);
+
+    if (strategies.length === 0) {
+        // No profile signal — do not fall back to an untargeted crawl, and do
+        // not spend a single credit.
+        const run = await createSearchRun({
+            user_id: userId,
+            search_params: { initiated_by: 'profile_targeted', reason: 'no_profile_signal' },
+        });
+        await completeSearchRunWithStats(run.id, { sources_searched: 0 });
+        return {
+            runId: run.id, creditsUsed: 0, pagesScraped: 0,
+            runError: false, unknownUsage: false, strategies: [], sourcesSearched: 0,
+        };
+    }
+
+    // ── Cross-instance mutual exclusion ─────────────────────────────────────
+    // Reuses M8's m8_cron_runs mutex. Acquired BEFORE any Firecrawl work, so a
+    // losing run spends zero credits.
+    const lock = await acquireDiscoveryLock(adminClient);
+    if (!lock.acquired) {
+        const run = await createSearchRun({
+            user_id: userId,
+            search_params: {
+                initiated_by: 'profile_targeted',
+                reason: lock.reason === 'busy' ? 'concurrency_aborted' : 'lock_error',
+            },
+        });
+        await completeSearchRunWithStats(run.id, { sources_searched: 0 });
+        return {
+            runId: run.id, creditsUsed: 0, pagesScraped: 0,
+            runError: lock.reason === 'error', unknownUsage: false,
+            strategies, sourcesSearched: 0, concurrencyAborted: true,
+        };
+    }
+
+    // Everything past this point MUST release the lock on every exit path.
+    const budget = new ExecutionBudget(
+        options.timeoutSeconds ?? getProfileSearchTimeoutSeconds()
+    );
+    let timedOut = false;
+    let searchesAttempted = 0;
+
+    try {
+    const resultsPerQuery = Math.max(
+        1, Math.min(options.resultsPerQuery ?? PROFILE_SEARCH_DEFAULT_RESULTS_PER_QUERY, 20)
+    );
+
+    // URLs already tracked for any source: never re-crawl a known posting.
+    const { data: knownMappings } = await adminClient
+        .from('job_source_mappings')
+        .select('source_url');
+    const alreadySeen = new Set(
+        (knownMappings ?? [])
+            .map((m: { source_url: string | null }) => m.source_url)
+            .filter((u): u is string => typeof u === 'string')
+    );
+
+    // Guards against re-searching the same source twice within one run.
+    const emittedThisRun = new Set<string>();
+
+    // Run-wide extraction budget — the real cost control (see maxUrlsPerRun).
+    // Clamped to the hard ceiling: a caller can request fewer URLs, never more.
+    const maxUrlsPerRun = resolveUrlBudget(options.maxUrlsPerRun);
+    let urlBudgetRemaining = maxUrlsPerRun;
+
+    const override: DiscoverOverride = async (source, limit) => {
+        if (!source.base_url) return [];
+
+        if (urlBudgetRemaining <= 0) {
+            console.log('[ProfileTargeted] run URL budget exhausted; skipping remaining sources');
+            return [];
+        }
+
+        // Stop taking on new sources once the time budget is spent.
+        if (timedOut || !budget.canAfford(minSearchSpacingMs())) {
+            timedOut = true;
+            console.warn('[ProfileTargeted] execution budget exhausted; skipping remaining sources');
+            return [];
+        }
+
+        const registry = new SourceAdapterRegistry();
+        const adapter = registry.getAdapterForSource(source.base_url);
+
+        if (!adapter || typeof adapter.searchJobs !== 'function') {
+            console.warn(`[ProfileTargeted] adapter for ${source.name ?? source.id} has no search capability; skipping`);
+            return [];
+        }
+
+        let sourceHost: string;
+        try {
+            sourceHost = new URL(source.base_url).hostname;
+        } catch {
+            return [];
+        }
+
+        // Per-run narrowing only. Never widens the permanent allow-list.
+        if (options.sourceHostAllowList && options.sourceHostAllowList.length > 0) {
+            const permittedThisRun = options.sourceHostAllowList.map(h => h.toLowerCase());
+            if (!permittedThisRun.includes(sourceHost.toLowerCase())) {
+                console.log(`[ProfileTargeted] source=${source.name ?? source.id} skipped (not in this run's scope)`);
+                return [];
+            }
+        }
+
+        const perQuery = Math.min(limit || resultsPerQuery, resultsPerQuery);
+        const collected: DiscoveredURL[] = [];
+
+        for (const strategy of strategies) {
+            if (urlBudgetRemaining <= 0) break;
+
+            // Time guard: a search costs at least the rate-gate spacing (~6s).
+            // Checked BEFORE starting, so an in-flight request is never
+            // interrupted and no partial record is written.
+            if (!budget.canAfford(minSearchSpacingMs())) {
+                timedOut = true;
+                console.warn(
+                    `[ProfileTargeted] execution budget exhausted after ${Math.round(budget.elapsedMs() / 1000)}s; ` +
+                    'stopping cleanly before the next search'
+                );
+                break;
+            }
+
+            searchesAttempted++;
+
+            // Restricted to THIS source's domain, so results are inherently
+            // within the existing allow-list.
+            const found = await adapter.searchJobs!(strategy.query, {
+                includeDomains: [sourceHost],
+                limit: Math.min(perQuery, urlBudgetRemaining),
+            });
+
+            for (const item of found) {
+                if (urlBudgetRemaining <= 0) break;
+                if (alreadySeen.has(item.url) || emittedThisRun.has(item.url)) continue;
+                emittedThisRun.add(item.url);
+                collected.push(item);
+                urlBudgetRemaining--;
+            }
+        }
+
+        console.log(
+            `[ProfileTargeted] source=${source.name ?? source.id} queries=${strategies.length} ` +
+            `new_urls=${collected.length} budget_left=${urlBudgetRemaining}`
+        );
+        return collected;
+    };
+
+    // Read the SAME active job_sources rows with the admin client, so this path
+    // works outside a Next.js request scope. The allow-list is unchanged.
+    //
+    // Rotation: least-recently-searched first, so successive runs cover every
+    // source instead of always hitting the same top-priority few. Ordering is
+    // fully deterministic — last_crawled_at, then priority, then id — so the
+    // same DB state always yields the same selection.
+    const { data: allActiveSources } = await adminClient
+        .from('job_sources')
+        .select('id, name, base_url, last_crawled_at, priority')
+        .eq('active', true)
+        .order('last_crawled_at', { ascending: true, nullsFirst: true })
+        .order('priority', { ascending: true })
+        .order('id', { ascending: true });
+
+    // Cap sources per run. This is what keeps search calls inside the
+    // provider's per-minute budget (queries × sources).
+    const maxSources = options.maxSourcesPerRun ?? getMaxSourcesPerRun();
+    const activeSources = (allActiveSources ?? []).slice(0, Math.max(1, maxSources));
+
+    console.log(
+        `[ProfileTargeted] sources selected ${activeSources.length}/${(allActiveSources ?? []).length} ` +
+        `(cap=${maxSources}) → ${strategies.length * activeSources.length} search call(s) planned`
+    );
+
+    const result = await runJobDiscoveryForUser(
+        userId,
+        {
+            initiated_by: 'profile_targeted',
+            limit: resultsPerQuery,
+            query_count: strategies.length,
+        },
+        override,
+        activeSources
+    );
+
+    // Advance the rotation so the NEXT run picks up where this one left off.
+    // Stamped after the run regardless of per-source yield: a source that was
+    // searched has had its turn, so it must not be selected again ahead of
+    // sources still waiting.
+    if (activeSources.length > 0) {
+        const { error: rotationError } = await adminClient
+            .from('job_sources')
+            .update({ last_crawled_at: new Date().toISOString() })
+            .in('id', activeSources.map(s => s.id));
+
+        if (rotationError) {
+            // Non-fatal: the run succeeded, only the rotation pointer failed.
+            console.error('[ProfileTargeted] rotation stamp failed:', rotationError.message);
+        }
+    }
+
+        await releaseDiscoveryLock(
+            adminClient,
+            lock.runId,
+            timedOut ? 'timeout' : 'completed',
+            {
+                searchesProcessed: searchesAttempted,
+                errorLog: timedOut ? 'Execution budget reached; stopped before next search' : undefined,
+            }
+        );
+
+        return {
+            ...result, strategies,
+            sourcesSearched: activeSources.length,
+            timedOut,
+        };
+    } catch (err: unknown) {
+        // Release on failure too, or the partial unique index blocks every
+        // future run.
+        await releaseDiscoveryLock(adminClient, lock.runId, 'failed', {
+            searchesProcessed: searchesAttempted,
+            errorLog: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
     }
 }
 
