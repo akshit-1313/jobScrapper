@@ -1,10 +1,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { allocateGeographicWorkload, classifySearchGeography } from "./geographic-allocator";
 import { runJobDiscoveryForUser } from '../jobs/discovery-service';
+import { reclaimStaleDiscoveryLocks } from '../jobs/discovery-lock';
 import { executePhaseCMatchAlerts } from './phase-c-orchestrator';
 
 export async function executeBackgroundDiscovery() {
     const supabase = createAdminClient();
+
+    // 0. Release locks abandoned by a hard platform kill (e.g. a serverless
+    // function terminated at maxDuration before it could release). Age-based
+    // and atomic, so a genuinely running cycle is never reclaimed. Purely
+    // additive: the concurrency check below is unchanged.
+    await reclaimStaleDiscoveryLocks(supabase);
 
     // 1. Cron Concurrency Check
     // We attempt to insert into m8_cron_runs. The DB has a partial unique index on status='running'.

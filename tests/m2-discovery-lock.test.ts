@@ -10,6 +10,8 @@
 import {
     acquireDiscoveryLock,
     releaseDiscoveryLock,
+    reclaimStaleDiscoveryLocks,
+    STALE_LOCK_MAX_AGE_SECONDS,
     ExecutionBudget,
     getProfileSearchTimeoutSeconds,
     PROFILE_SEARCH_DEFAULT_TIMEOUT_SECONDS,
@@ -20,12 +22,18 @@ import {
 function makeClient(opts: {
     insertResult?: { data?: { id: string } | null; error?: { code?: string; message: string } | null }
     updateError?: { message: string } | null
+    rpcResult?: { data?: unknown; error?: { message: string } | null }
 } = {}) {
     const updates: Array<Record<string, unknown>> = []
     const inserts: Array<Record<string, unknown>> = []
+    const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = []
 
     const client = {
-        updates, inserts,
+        updates, inserts, rpcCalls,
+        async rpc(fn: string, args: Record<string, unknown>) {
+            rpcCalls.push({ fn, args })
+            return opts.rpcResult ?? { data: 0, error: null }
+        },
         from(table: string) {
             expect(table).toBe('m8_cron_runs')
             return {
@@ -217,5 +225,88 @@ describe('Phase 3 execution budget', () => {
         const t0 = 1_000_000
         const b = new ExecutionBudget(0, t0)
         expect(b.remainingMs(t0)).toBe(1000)
+    })
+})
+
+/**
+ * Stale-lock recovery.
+ *
+ * A serverless platform can hard-kill a function at its maxDuration before the
+ * release path runs, leaving m8_cron_runs.status='running' forever. The partial
+ * unique index then blocks every future discovery run.
+ *
+ * Recovery is age-based and delegated to a SECURITY DEFINER Postgres function
+ * (migration 022), mirroring the reset_stale_tasks convention. These tests
+ * cover the client contract; the age predicate itself lives in SQL.
+ */
+describe('stale discovery lock recovery', () => {
+    test('the default threshold is far above any legitimate run', () => {
+        // Vercel Hobby hard-kills at 60s and both budgets sit below that, so no
+        // live run can survive to be reclaimed.
+        expect(STALE_LOCK_MAX_AGE_SECONDS).toBe(300)
+        expect(STALE_LOCK_MAX_AGE_SECONDS).toBeGreaterThan(60 * 4)
+    })
+
+    test('calls the shared reclaim function with the age threshold', async () => {
+        const c = makeClient({ rpcResult: { data: 0, error: null } })
+        await reclaimStaleDiscoveryLocks(c)
+
+        expect(c.rpcCalls).toHaveLength(1)
+        expect(c.rpcCalls[0].fn).toBe('reclaim_stale_discovery_locks')
+        expect(c.rpcCalls[0].args).toEqual({ p_max_age_seconds: STALE_LOCK_MAX_AGE_SECONDS })
+    })
+
+    test('reports how many abandoned locks were reclaimed', async () => {
+        const c = makeClient({ rpcResult: { data: 2, error: null } })
+        expect(await reclaimStaleDiscoveryLocks(c)).toBe(2)
+    })
+
+    test('a fresh running row is NOT reclaimed — nothing to recover', async () => {
+        // The SQL predicate only matches rows older than the threshold, so a
+        // live run yields a reclaim count of zero.
+        const c = makeClient({ rpcResult: { data: 0, error: null } })
+        expect(await reclaimStaleDiscoveryLocks(c)).toBe(0)
+    })
+
+    test('accepts an explicit threshold', async () => {
+        const c = makeClient({ rpcResult: { data: 0, error: null } })
+        await reclaimStaleDiscoveryLocks(c, 600)
+        expect(c.rpcCalls[0].args).toEqual({ p_max_age_seconds: 600 })
+    })
+
+    test('a reclaim failure never blocks a normal acquisition attempt', async () => {
+        const c = makeClient({ rpcResult: { data: null, error: { message: 'rpc down' } } })
+        await expect(reclaimStaleDiscoveryLocks(c)).resolves.toBe(0)
+    })
+
+    // ── Integration with acquisition ────────────────────────────────────────
+
+    test('acquisition reclaims stale locks BEFORE inserting', async () => {
+        const c = makeClient()
+        const res = await acquireDiscoveryLock(c)
+
+        expect(res.acquired).toBe(true)
+        expect(c.rpcCalls).toHaveLength(1)
+        expect(c.rpcCalls[0].fn).toBe('reclaim_stale_discovery_locks')
+        expect(c.inserts).toEqual([{ status: 'running' }])
+    })
+
+    test('recovery does NOT weaken the mutex — a live run still loses with 23505', async () => {
+        // Reclaim finds nothing (fresh row), so the concurrent attempt still
+        // hits the unique index and aborts cleanly.
+        const c = makeClient({
+            rpcResult: { data: 0, error: null },
+            insertResult: { data: null, error: { code: PG_UNIQUE_VIOLATION, message: 'duplicate key' } },
+        })
+        const res = await acquireDiscoveryLock(c)
+
+        expect(res.acquired).toBe(false)
+        if (!res.acquired) expect(res.reason).toBe('busy')
+    })
+
+    test('acquisition still succeeds even if reclaim errors', async () => {
+        const c = makeClient({ rpcResult: { data: null, error: { message: 'rpc down' } } })
+        const res = await acquireDiscoveryLock(c)
+        expect(res.acquired).toBe(true)
     })
 })

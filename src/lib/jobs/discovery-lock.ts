@@ -39,7 +39,55 @@ export interface LockRejected {
 export type LockResult = LockAcquired | LockRejected;
 
 /**
+ * Default age after which a 'running' row is considered abandoned.
+ *
+ * Five times the platform's 60s function ceiling. No legitimate run can still
+ * be executing after that, so an active run can never be reclaimed.
+ */
+export const STALE_LOCK_MAX_AGE_SECONDS = 300;
+
+/**
+ * Release locks abandoned by a hard platform kill.
+ *
+ * A serverless function terminated at its maxDuration never runs its release
+ * path, leaving status='running' forever — which the partial unique index then
+ * treats as a permanently held mutex, blocking all future discovery.
+ *
+ * Age-based and atomic (one UPDATE), so it is safe to call from several
+ * instances at once and cannot reclaim a live run. Never throws: recovery
+ * failing must not prevent a normal acquisition attempt.
+ */
+export async function reclaimStaleDiscoveryLocks(
+    supabase: SupabaseClient,
+    maxAgeSeconds: number = STALE_LOCK_MAX_AGE_SECONDS
+): Promise<number> {
+    try {
+        const { data, error } = await supabase.rpc('reclaim_stale_discovery_locks', {
+            p_max_age_seconds: maxAgeSeconds,
+        });
+
+        if (error) {
+            console.error('[DISCOVERY_LOCK] Stale-lock reclaim failed:', error.message);
+            return 0;
+        }
+
+        const count = typeof data === 'number' ? data : 0;
+        if (count > 0) {
+            console.warn(`[DISCOVERY_LOCK] Reclaimed ${count} abandoned discovery lock(s).`);
+        }
+        return count;
+    } catch (e) {
+        console.error('[DISCOVERY_LOCK] Unexpected error during stale-lock reclaim:', e);
+        return 0;
+    }
+}
+
+/**
  * Attempt to take the global discovery lock.
+ *
+ * Abandoned locks are reclaimed first, so a previous platform kill cannot
+ * deadlock discovery permanently. The mutex is unchanged: acquisition is still
+ * the same insert, and a genuine concurrent run still loses with 23505.
  *
  * Returns `{ acquired: false, reason: 'busy' }` on 23505 — the caller must
  * abort WITHOUT performing any external work (no Firecrawl call, no credits).
@@ -47,6 +95,8 @@ export type LockResult = LockAcquired | LockRejected;
 export async function acquireDiscoveryLock(
     supabase: SupabaseClient
 ): Promise<LockResult> {
+    await reclaimStaleDiscoveryLocks(supabase);
+
     const { data, error } = await supabase
         .from('m8_cron_runs')
         .insert({ status: 'running' })
