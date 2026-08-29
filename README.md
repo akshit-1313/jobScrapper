@@ -68,7 +68,7 @@ session, never from an argument. Do not "fix" this by adding INSERT/UPDATE polic
 | Work queue | `saved_searches` | 0 rows |
 | Budget grants | `user_firecrawl_allocations` | 0 rows, **no provisioning path exists** |
 | Usage ledger | `firecrawl_usage_ledgers` | 0 rows |
-| Vercel cron registration | `vercel.json` | **No `crons` array — intentionally absent** |
+| Vercel cron registration | `vercel.json` | `vercel.json` contains one daily cron for `/api/cron/daily-discovery`; the legacy M8 `/api/cron/discovery` route remains **intentionally unregistered and dormant**. |
 
 The mutex and stale-lock recovery are the only M8 components in live use: Phase 3 reuses
 them, which is why `m8_cron_runs` has rows. That is expected and must not be removed.
