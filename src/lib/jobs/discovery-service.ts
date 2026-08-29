@@ -321,19 +321,27 @@ export async function runJobDiscoveryForUser(
                                 .limit(1)
                                 .maybeSingle();
 
+                            // Writes the full job_locations model. A field the
+                            // posting did not state stays null rather than
+                            // being filled with a guess.
+                            const locationRow = {
+                                city: extractedLocation.city,
+                                state: extractedLocation.state,
+                                country: extractedLocation.country,
+                                region: extractedLocation.region,
+                                remote_allowed: extractedLocation.remote_allowed,
+                                remote_region: extractedLocation.remote_region,
+                            };
+
                             if (existingLoc) {
                                 await adminClient
                                     .from('job_locations')
-                                    .update({ city: extractedLocation.city, country: extractedLocation.country })
+                                    .update(locationRow)
                                     .eq('id', existingLoc.id);
                             } else {
                                 await adminClient
                                     .from('job_locations')
-                                    .insert({
-                                        job_id: jobTargetId,
-                                        city: extractedLocation.city,
-                                        country: extractedLocation.country,
-                                    });
+                                    .insert({ job_id: jobTargetId, ...locationRow });
                             }
                         }
 

@@ -237,14 +237,23 @@ describe('Global/remote search parameters', () => {
         });
     });
 
+    // Shape and single-token behaviour deliberately changed: a bare token is a
+    // city unless it is a recognised country, and the result now fills the full
+    // job_locations model. Exhaustive cases live in m2-location-parsing.test.ts.
     describe('location parsing', () => {
-        it('splits city and country on the last comma', () => {
-            expect(parseLocation('Bengaluru, India')).toEqual({ city: 'Bengaluru', country: 'India' });
-            expect(parseLocation('San Francisco, CA, USA')).toEqual({ city: 'San Francisco, CA', country: 'USA' });
+        it('splits city, state and country using the country dictionary', () => {
+            expect(parseLocation('Bengaluru, India')).toMatchObject({ city: 'Bengaluru', country: 'India' });
+            expect(parseLocation('San Francisco, CA, USA')).toMatchObject({
+                city: 'San Francisco', state: 'CA', country: 'United States',
+            });
         });
 
-        it('treats a single token as the country', () => {
-            expect(parseLocation('Germany')).toEqual({ city: null, country: 'Germany' });
+        it('treats a single recognised token as the country', () => {
+            expect(parseLocation('Germany')).toMatchObject({ city: null, country: 'Germany' });
+        });
+
+        it('treats a single UNRECOGNISED token as a city, not a country', () => {
+            expect(parseLocation('Bengaluru')).toMatchObject({ city: 'Bengaluru', country: null });
         });
 
         it('returns null rather than an empty row', () => {
@@ -301,7 +310,7 @@ describe('Global/remote search parameters', () => {
 
         it('parses the location alongside the job record', () => {
             const r = JobNormalizer.normalize({ ...base, workMode: 'office', location: 'Bengaluru, India' } as any);
-            expect(r?.location).toEqual({ city: 'Bengaluru', country: 'India' });
+            expect(r?.location).toMatchObject({ city: 'Bengaluru', country: 'India', remote_allowed: false });
         });
 
         it('preserves all pre-existing fields', () => {
