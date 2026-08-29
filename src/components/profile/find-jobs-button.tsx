@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { findMatchingJobsAction } from '@/app/actions/discovery-actions'
+import { formatDiscoverySummary } from '@/lib/jobs/discovery-summary'
 
 interface Props {
     /** False when the profile has no data to build search queries from. */
@@ -15,6 +16,8 @@ interface ActionResult {
     error?: string
     queries?: string[]
     pagesScraped?: number
+    /** Matches actually written by M6. Not inferred from the call succeeding. */
+    matchesPersisted?: number
 }
 
 /**
@@ -76,7 +79,7 @@ export function FindJobsButton({ hasProfileData }: Props) {
                 <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                     <p className="text-sm text-emerald-800 flex items-center gap-2">
                         <CheckCircle2 size={16} />
-                        Search complete — {result.pagesScraped ?? 0} job page(s) processed and matched.
+                        {formatDiscoverySummary(result.pagesScraped ?? 0, result.matchesPersisted ?? 0)}
                     </p>
                     {result.queries && result.queries.length > 0 && (
                         <ul className="mt-2 space-y-1">

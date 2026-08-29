@@ -71,6 +71,9 @@ export async function findMatchingJobsAction() {
             queries: discovery.strategies.map(s => s.query),
             pagesScraped: discovery.pagesScraped,
             matched: matching.success,
+            // Authoritative count of matches actually written. `matched` only
+            // says the matching pass completed, so the UI must report this.
+            matchesPersisted: matching.persisted,
         };
     } catch (err: unknown) {
         console.error('Profile-targeted discovery failed:', err);
