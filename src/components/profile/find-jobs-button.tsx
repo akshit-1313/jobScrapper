@@ -49,8 +49,7 @@ export function FindJobsButton({ hasProfileData }: Props) {
                 <div>
                     <h3 className="font-semibold text-slate-900">Find matching jobs</h3>
                     <p className="text-sm text-slate-500 mt-1 max-w-xl">
-                        Builds targeted searches from your profile, discovers jobs on approved job
-                        boards, and ranks them against your skills and experience.
+                        Search the selected job sources using your profile and saved search parameters.
                     </p>
                     <p className="text-xs text-slate-400 mt-2">
                         Runs only when you click. Limited to 4 job pages per search.

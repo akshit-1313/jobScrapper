@@ -10,12 +10,14 @@ import {
     User,
     Settings,
     SlidersHorizontal,
+    Radar,
     Search
 } from 'lucide-react'
 
 const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Discover Jobs', href: '/jobs', icon: Search },
+    { name: 'Search & Discovery', href: '/search-discovery', icon: Radar },
     { name: 'Saved', href: '/saved', icon: Bookmark },
     { name: 'Applications', href: '/applications', icon: Send },
     { name: 'Profile', href: '/profile', icon: User },

@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import {
     normaliseProviderResponse,
     buildUsageSummary,
+    type LastRunRecord,
     type ProviderSnapshot,
     type UsageSummary,
 } from './usage-model';
@@ -142,19 +143,47 @@ async function readObservedRunCosts(limit = 20): Promise<number[]> {
 }
 
 /**
+ * Newest manual run, from the ledger the runs already write.
+ *
+ * No new storage: this is the same `firecrawl_usage_ledgers` table, filtered to
+ * the manual operation key. The reconciliation status is carried through so the
+ * panel can say whether the figure is a whole-run cost or extraction only.
+ */
+async function readLastManualRun(): Promise<LastRunRecord | null> {
+    const admin = createAdminClient();
+    const { data } = await admin
+        .from('firecrawl_usage_ledgers')
+        .select('credits_consumed, pages_scraped, reconciliation_status, created_at')
+        .eq('operation_type', 'manual_discovery')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (!data?.created_at) return null;
+
+    return {
+        at: data.created_at,
+        creditsConsumed: typeof data.credits_consumed === 'number' ? data.credits_consumed : 0,
+        pagesScraped: typeof data.pages_scraped === 'number' ? data.pages_scraped : 0,
+        reconciliation: data.reconciliation_status ?? 'provider_usage_unknown',
+    };
+}
+
+/**
  * Everything the panel renders. Reads stored data only — no provider call.
  */
 export async function getUsagePanelData(
     dailyDiscoveryEnabled: boolean,
     now: Date = new Date()
 ): Promise<UsagePanelData> {
-    const [snapshot, observedRunCosts] = await Promise.all([
+    const [snapshot, observedRunCosts, lastManualRun] = await Promise.all([
         readLatestSnapshot(),
         readObservedRunCosts(),
+        readLastManualRun(),
     ]);
 
     return {
-        ...buildUsageSummary({ snapshot, dailyDiscoveryEnabled, observedRunCosts, now }),
+        ...buildUsageSummary({ snapshot, dailyDiscoveryEnabled, observedRunCosts, lastManualRun, now }),
         lastRefreshFailed: false,
     };
 }

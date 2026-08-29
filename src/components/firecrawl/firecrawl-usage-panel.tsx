@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import { Gauge, RefreshCw, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { refreshFirecrawlUsage } from '@/app/actions/usage-actions'
-import { formatRange, type UsageSummary } from '@/lib/firecrawl/usage-model'
+import { formatRange, isWholeRunCost, type UsageSummary } from '@/lib/firecrawl/usage-model'
 
 interface Props {
     usage: UsageSummary
@@ -55,9 +55,10 @@ export function FirecrawlUsagePanel({ usage, dailyDiscoveryEnabled }: Props) {
     }
 
     const a = usage.actual
+    const last = usage.lastManualRun
 
     return (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section id="firecrawl-usage" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex gap-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
@@ -184,6 +185,29 @@ export function FirecrawlUsagePanel({ usage, dailyDiscoveryEnabled }: Props) {
                             <dt className="text-slate-500">Safety reserve<Estimated /></dt>
                             <dd className="text-slate-800">{usage.safetyReserve}</dd>
                         </div>
+                        <div className="flex justify-between gap-3">
+                            <dt className="text-slate-500">Last run</dt>
+                            <dd className="text-right text-slate-800">
+                                {last ? formatUtc(last.at) : 'Not run yet'}
+                            </dd>
+                        </div>
+                        {last && (
+                            <div className="flex justify-between gap-3">
+                                {/* Unlabelled: a recorded figure is provider-reported, not a
+                                    forecast. Whether it is a WHOLE run is a separate question,
+                                    stated in words rather than by a tag. */}
+                                <dt className="text-slate-500">Last run usage</dt>
+                                <dd className="text-right text-slate-800">
+                                    {last.creditsConsumed} credit{last.creditsConsumed === 1 ? '' : 's'}
+                                    {last.pagesScraped > 0 && ` · ${last.pagesScraped} page${last.pagesScraped === 1 ? '' : 's'}`}
+                                    {!isWholeRunCost(last) && (
+                                        <span className="block text-xs text-slate-500">
+                                            extraction only — at least this much
+                                        </span>
+                                    )}
+                                </dd>
+                            </div>
+                        )}
                     </dl>
                     <p className="mt-3 text-xs text-slate-500">
                         Remaining, minus the credits the scheduled runs are expected to need, minus the
@@ -197,6 +221,6 @@ export function FirecrawlUsagePanel({ usage, dailyDiscoveryEnabled }: Props) {
                 per-search credits, so a run costs somewhat more than the ledger shows. Forecasts use
                 ranges rather than a single figure for that reason.
             </p>
-        </div>
+        </section>
     )
 }

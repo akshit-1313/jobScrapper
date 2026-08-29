@@ -1,46 +1,22 @@
 import { createClient } from '@/utils/supabase/server';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import { IntegrationPanel } from './integration-panel';
-import { DailyDiscoveryPanel } from './daily-discovery-panel';
-import { FirecrawlUsagePanel } from '@/components/firecrawl/firecrawl-usage-panel';
-import { getUsagePanelData } from '@/lib/firecrawl/usage-service';
 
 export default async function SettingsPage() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     let integrations = [];
-    let dailyEnabled = false;
-    let lastRunAt: string | null = null;
-    let hasProfileData = false;
 
     if (user) {
-        const [integrationsRes, profileRes, skillsRes] = await Promise.all([
-            supabase
-                .from('user_integrations')
-                .select('*')
-                .eq('user_id', user.id),
-            supabase
-                .from('profiles')
-                .select('headline, daily_discovery_enabled, last_daily_discovery_at')
-                .eq('user_id', user.id)
-                .maybeSingle(),
-            supabase
-                .from('candidate_skills')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', user.id),
-        ]);
+        const { data } = await supabase
+            .from('user_integrations')
+            .select('*')
+            .eq('user_id', user.id);
 
-        integrations = integrationsRes.data || [];
-        dailyEnabled = profileRes.data?.daily_discovery_enabled === true;
-        lastRunAt = profileRes.data?.last_daily_discovery_at ?? null;
-
-        // Same precondition the manual button uses: without profile signal there
-        // is nothing to build search queries from.
-        hasProfileData = Boolean(profileRes.data?.headline) || (skillsRes.count ?? 0) > 0;
+        integrations = data || [];
     }
-
-    // Stored snapshot only — no provider call on render.
-    const usage = await getUsagePanelData(dailyEnabled);
 
     return (
         <div className="space-y-6">
@@ -49,13 +25,22 @@ export default async function SettingsPage() {
                 <p className="text-slate-500">Manage your account, notifications, and integrations.</p>
             </div>
 
-            <DailyDiscoveryPanel
-                initialEnabled={dailyEnabled}
-                hasProfileData={hasProfileData}
-                lastRunAt={lastRunAt}
-            />
-
-            <FirecrawlUsagePanel usage={usage} dailyDiscoveryEnabled={dailyEnabled} />
+            {/* Daily Job Search and Firecrawl Usage moved to Search & Discovery.
+                They are linked rather than duplicated: two copies of the same
+                toggle and the same snapshot invite drift and confusion about
+                which one is authoritative. */}
+            <Link
+                href="/search-discovery"
+                className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:bg-slate-50"
+            >
+                <span>
+                    <span className="block font-semibold text-slate-900">Manage Search &amp; Discovery</span>
+                    <span className="mt-0.5 block text-sm text-slate-500">
+                        Daily job search, search parameters, job sources and Firecrawl usage.
+                    </span>
+                </span>
+                <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />
+            </Link>
 
             {/* Injected dynamically cleanly seamlessly intuitively securely correctly smartly functionally dependably accurately stably. */}
             <IntegrationPanel integrations={integrations} />

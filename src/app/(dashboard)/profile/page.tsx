@@ -5,11 +5,9 @@ import { ExperienceForm } from '@/components/profile/experience-form'
 import { ResumeSection } from '@/components/resume/resume-section'
 import { StructuredProfile } from '@/components/profile/structured-profile'
 import { FindJobsButton } from '@/components/profile/find-jobs-button'
-import { SearchParametersPanel } from '@/components/profile/search-parameters-panel'
-import { toSearchParameters } from '@/lib/types/search-parameters'
-import { FirecrawlUsagePanel } from '@/components/firecrawl/firecrawl-usage-panel'
-import { getUsagePanelData } from '@/lib/firecrawl/usage-service'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
+import { ArrowRight } from 'lucide-react'
 import type { ResumeVersion } from '@/lib/types/resume'
 
 export default async function ProfilePage() {
@@ -21,7 +19,7 @@ export default async function ProfilePage() {
     }
 
     // Parallel fetch for speed
-    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes, prefsRes, sourcesRes, dailyRes] = await Promise.all([
+    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('user_id', authData.user.id).single(),
         supabase.from('candidate_skills').select('*').eq('user_id', authData.user.id),
         supabase.from('candidate_experience').select('*').eq('user_id', authData.user.id),
@@ -29,13 +27,6 @@ export default async function ProfilePage() {
         supabase.from('candidate_engagements').select('*').eq('user_id', authData.user.id).order('start_date', { ascending: false }),
         supabase.from('candidate_education').select('*').eq('user_id', authData.user.id).order('end_date', { ascending: false }),
         supabase.from('candidate_certifications').select('*').eq('user_id', authData.user.id).order('issue_date', { ascending: false }),
-        supabase.from('candidate_preferences').select(
-            'desired_roles, work_modes, geographic_preferences, remote_search_terms, desired_skills, excluded_skills, excluded_roles, selected_source_ids'
-        ).eq('user_id', authData.user.id).maybeSingle(),
-        // Only globally active sources are offered. The allow-list is applied
-        // again server-side at run time, so the UI cannot widen it.
-        supabase.from('job_sources').select('id, name').eq('active', true).order('name'),
-        supabase.from('profiles').select('daily_discovery_enabled').eq('user_id', authData.user.id).maybeSingle(),
     ])
 
     const profileData = profileRes.data || null
@@ -44,11 +35,6 @@ export default async function ProfilePage() {
     const engagementsData = engRes.data || []
     const educationData = eduRes.data || []
     const certificationsData = certRes.data || []
-    const searchParameters = toSearchParameters(prefsRes.data)
-    const availableSources = (sourcesRes.data || []) as Array<{ id: string; name: string }>
-    const dailyDiscoveryEnabled = dailyRes.data?.daily_discovery_enabled === true
-    // Reads the stored snapshot only — never calls Firecrawl on render.
-    const usage = await getUsagePanelData(dailyDiscoveryEnabled)
 
     // Drives whether the manual job search is available — searches are built
     // from this data, so an empty profile has nothing to search with.
@@ -84,10 +70,23 @@ export default async function ProfilePage() {
                     certifications={certificationsData}
                 />
 
-                {/* 3. Explicit, user-triggered job search + matching */}
+                {/* 3. Explicit, user-triggered job search + matching. The entry
+                    point stays here; everything that CONFIGURES it now lives on
+                    Search & Discovery, so this page keeps one job. */}
                 <FindJobsButton hasProfileData={hasProfileData} />
-                <SearchParametersPanel initialValues={searchParameters} availableSources={availableSources} />
-                <FirecrawlUsagePanel usage={usage} dailyDiscoveryEnabled={dailyDiscoveryEnabled} />
+
+                <Link
+                    href="/search-discovery"
+                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:bg-slate-50"
+                >
+                    <span>
+                        <span className="block font-semibold text-slate-900">Search &amp; Discovery</span>
+                        <span className="mt-0.5 block text-sm text-slate-500">
+                            Search parameters, job sources, Firecrawl usage and the daily search.
+                        </span>
+                    </span>
+                    <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />
+                </Link>
 
                 {/* Editable forms */}
                 <ProfileForm initialData={profileData} />

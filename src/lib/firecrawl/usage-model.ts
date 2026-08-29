@@ -25,6 +25,25 @@ export interface CreditRange {
 }
 
 /**
+ * The newest ledger row for one kind of run.
+ *
+ * Read from the existing `firecrawl_usage_ledgers` table — no new storage. The
+ * reconciliation status travels with it because an unreconciled figure is
+ * extraction only, and the panel must not present a lower bound as a total.
+ */
+export interface LastRunRecord {
+    at: string;
+    creditsConsumed: number;
+    pagesScraped: number;
+    reconciliation: string;
+}
+
+/** True when a recorded cost is a whole-run figure rather than a lower bound. */
+export function isWholeRunCost(run: LastRunRecord | null): boolean {
+    return run?.reconciliation === 'reconciled';
+}
+
+/**
  * Fallback per-run cost when no observed history exists.
  *
  * From the measured model `credits ≈ 4 + 5 × URLs extracted`: one search plus
@@ -151,6 +170,8 @@ export interface UsageSummary {
     cronReserve: CreditRange;
     safetyReserve: number;
     manualAvailable: CreditRange;
+    /** Newest manual run from the ledger, or null when none has been recorded. */
+    lastManualRun: LastRunRecord | null;
 }
 
 /**
@@ -164,9 +185,11 @@ export function buildUsageSummary(input: {
     snapshot: ProviderSnapshot | null;
     dailyDiscoveryEnabled: boolean;
     observedRunCosts: number[];
+    lastManualRun?: LastRunRecord | null;
     now?: Date;
 }): UsageSummary {
     const now = input.now ?? new Date();
+    const lastManualRun = input.lastManualRun ?? null;
     const perRun = estimatePerRun(input.observedRunCosts);
     const runsRemaining = remainingCronRuns(
         input.dailyDiscoveryEnabled,
@@ -180,6 +203,7 @@ export function buildUsageSummary(input: {
             actual: null, stale: true, usedCredits: null, perRun, runsRemaining,
             cronReserve, safetyReserve: MIN_SAFETY_RESERVE,
             manualAvailable: { low: 0, high: 0 },
+            lastManualRun,
         };
     }
 
@@ -194,5 +218,6 @@ export function buildUsageSummary(input: {
         cronReserve,
         safetyReserve: reserve,
         manualAvailable: estimatedManualAvailable(input.snapshot.remainingCredits, cronReserve, reserve),
+        lastManualRun,
     };
 }

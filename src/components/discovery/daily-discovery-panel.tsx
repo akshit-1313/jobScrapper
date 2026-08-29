@@ -10,6 +10,8 @@ interface Props {
     /** False when the profile has no data to build search queries from. */
     hasProfileData: boolean
     lastRunAt: string | null
+    /** Next 04:00 UTC occurrence, computed on the server so it is not clock-skewed. */
+    nextRunAt: string | null
 }
 
 /**
@@ -19,7 +21,7 @@ interface Props {
  * Firecrawl credits on the user's behalf without them being present, so the
  * limits are stated on the control rather than buried in documentation.
  */
-export function DailyDiscoveryPanel({ initialEnabled, hasProfileData, lastRunAt }: Props) {
+export function DailyDiscoveryPanel({ initialEnabled, hasProfileData, lastRunAt, nextRunAt }: Props) {
     const [enabled, setEnabled] = useState(initialEnabled)
     const [isPending, startTransition] = useTransition()
 
@@ -42,7 +44,7 @@ export function DailyDiscoveryPanel({ initialEnabled, hasProfileData, lastRunAt 
     }
 
     return (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section id="daily-discovery" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex gap-4">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
@@ -51,8 +53,16 @@ export function DailyDiscoveryPanel({ initialEnabled, hasProfileData, lastRunAt 
                     <div>
                         <h3 className="font-semibold text-slate-900">Daily Job Search</h3>
                         <p className="mt-1 max-w-xl text-sm text-slate-500">
-                            Runs the same search as the <strong>Find matching jobs</strong> button on your
-                            profile, once a day, without you having to be here. Off by default.
+                            Runs the same search as <strong>Find matching jobs</strong>, once a day, without
+                            you having to be here. It uses your saved{' '}
+                            <a href="#search-parameters" className="underline hover:text-slate-700">
+                                search parameters
+                            </a>{' '}
+                            and{' '}
+                            <a href="#job-sources" className="underline hover:text-slate-700">
+                                selected job sources
+                            </a>
+                            {' '}— there is no separate schedule configuration. Off by default.
                         </p>
                     </div>
                 </div>
@@ -88,12 +98,20 @@ export function DailyDiscoveryPanel({ initialEnabled, hasProfileData, lastRunAt 
                     </dd>
                 </div>
                 <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Next scheduled run</dt>
+                    <dd className="mt-0.5 text-slate-700">
+                        {enabled
+                            ? (nextRunAt ? new Date(nextRunAt).toUTCString() : 'Unknown')
+                            : 'Not scheduled — daily search is off'}
+                    </dd>
+                </div>
+                <div>
                     <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Search criteria</dt>
                     <dd className="mt-0.5 text-slate-700">
-                        Built from your profile
+                        Your profile + saved search parameters
                         <span className="block text-xs text-slate-500">
-                            Your headline, skills and experience — the same queries the manual button uses.
-                            Update your profile to change them.
+                            The same queries the manual button builds, from the same stored settings and
+                            the same selected job sources.
                         </span>
                     </dd>
                 </div>
@@ -126,6 +144,6 @@ export function DailyDiscoveryPanel({ initialEnabled, hasProfileData, lastRunAt 
                     Upload and confirm a resume first — the daily search is built from your profile.
                 </p>
             )}
-        </div>
+        </section>
     )
 }
