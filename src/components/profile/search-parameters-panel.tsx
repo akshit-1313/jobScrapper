@@ -11,8 +11,16 @@ import {
     type WorkModeOption,
 } from '@/lib/types/search-parameters'
 
+/** A globally active job source the user may choose. */
+export interface SelectableSource {
+    id: string
+    name: string
+}
+
 interface Props {
     initialValues: SearchParametersValues
+    /** Only globally active sources are ever passed in. */
+    availableSources: SelectableSource[]
 }
 
 const WORK_MODE_LABELS: Record<WorkModeOption, string> = {
@@ -99,12 +107,30 @@ function TermList({
  *
  * Empty fields are meaningful and are never filled in on the user's behalf.
  */
-export function SearchParametersPanel({ initialValues }: Props) {
+export function SearchParametersPanel({ initialValues, availableSources }: Props) {
     const [saved, setSaved] = useState<SearchParametersValues>(initialValues)
     const [values, setValues] = useState<SearchParametersValues>(initialValues)
     const [isPending, startTransition] = useTransition()
 
+    // Two explicit modes so an empty list is never ambiguous:
+    // "All sources" stores [], "Choose sources" stores the checked ids.
+    const [chooseSources, setChooseSources] = useState(initialValues.selected_source_ids.length > 0)
+
     const isDirty = !searchParametersEqual(values, saved)
+    const noSourceChosen = chooseSources && values.selected_source_ids.length === 0
+
+    const toggleSource = (id: string) => {
+        const has = values.selected_source_ids.includes(id)
+        set('selected_source_ids', has
+            ? values.selected_source_ids.filter(s => s !== id)
+            : [...values.selected_source_ids, id])
+    }
+
+    const setSourceMode = (choose: boolean) => {
+        setChooseSources(choose)
+        // Leaving "choose" mode returns to the all-sources default.
+        if (!choose) set('selected_source_ids', [])
+    }
 
     const set = <K extends keyof SearchParametersValues>(key: K, next: SearchParametersValues[K]) =>
         setValues(prev => ({ ...prev, [key]: next }))
@@ -229,11 +255,78 @@ export function SearchParametersPanel({ initialValues }: Props) {
                 />
             </div>
 
+            {/* Job Sources — a preference that narrows the rotation pool.
+                Only globally active sources are ever listed, and the server
+                intersects the saved ids with the allow-list again at run time. */}
+            <div className="mt-6 border-t border-slate-100 pt-5">
+                <label className="text-sm font-medium text-slate-700">Job Sources</label>
+                <p className="mt-0.5 text-xs text-slate-500">
+                    <strong>Up to 3 sources are searched per run on the current Hobby plan.</strong>{' '}
+                    Selected sources take turns — each run picks the 3 least recently searched, so
+                    coverage rotates across days rather than searching everything at once.
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={!chooseSources}
+                        onClick={() => setSourceMode(false)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${!chooseSources
+                            ? 'border-slate-900 bg-slate-900 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                    >
+                        All sources ({availableSources.length})
+                    </button>
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={chooseSources}
+                        onClick={() => setSourceMode(true)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${chooseSources
+                            ? 'border-slate-900 bg-slate-900 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                    >
+                        Choose sources
+                    </button>
+                </div>
+
+                {chooseSources && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {availableSources.map(source => {
+                            const checked = values.selected_source_ids.includes(source.id)
+                            return (
+                                <label
+                                    key={source.id}
+                                    className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleSource(source.id)}
+                                        className="rounded border-slate-300"
+                                    />
+                                    {source.name}
+                                </label>
+                            )
+                        })}
+                    </div>
+                )}
+
+                {noSourceChosen && (
+                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        Select at least one source, or switch back to <strong>All sources</strong>.
+                    </p>
+                )}
+            </div>
+
             <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                     type="button"
                     onClick={handleSave}
-                    disabled={isPending || !isDirty}
+                    disabled={isPending || !isDirty || noSourceChosen}
                     className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                     {isPending && <Loader2 className="h-4 w-4 animate-spin" />}

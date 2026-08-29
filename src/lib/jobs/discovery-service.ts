@@ -14,6 +14,7 @@ import {
     getExtractionReservationSeconds,
 } from './discovery-lock';
 import { minSearchSpacingMs } from './adapters/firecrawl-adapter';
+import { resolveEligibleSources } from '@/lib/types/search-parameters';
 
 /**
  * Validates that a discovered candidate URL strictly belongs to the permitted root domain.
@@ -702,14 +703,31 @@ export async function runProfileTargetedDiscovery(
         .order('priority', { ascending: true })
         .order('id', { ascending: true });
 
+    // Narrow to the user's chosen job boards, if they made a choice. The query
+    // above already applied `active = true`, so this can only ever intersect
+    // with the allow-list — a stale or deactivated id contributes nothing and
+    // an empty selection means "all", which is the existing behaviour.
+    // Rotation order is preserved exactly.
+    const { data: sourcePrefs } = await adminClient
+        .from('candidate_preferences')
+        .select('selected_source_ids')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    const eligibleSources = resolveEligibleSources(
+        allActiveSources ?? [],
+        sourcePrefs?.selected_source_ids as string[] | null | undefined
+    );
+
     // Cap sources per run. This is what keeps search calls inside the
     // provider's per-minute budget (queries × sources).
     const maxSources = options.maxSourcesPerRun ?? getMaxSourcesPerRun();
-    const activeSources = (allActiveSources ?? []).slice(0, Math.max(1, maxSources));
+    const activeSources = eligibleSources.slice(0, Math.max(1, maxSources));
 
     console.log(
-        `[ProfileTargeted] sources selected ${activeSources.length}/${(allActiveSources ?? []).length} ` +
-        `(cap=${maxSources}) → ${strategies.length * activeSources.length} search call(s) planned`
+        `[ProfileTargeted] sources selected ${activeSources.length}/${eligibleSources.length} ` +
+        `(eligible ${eligibleSources.length}/${(allActiveSources ?? []).length} after user selection, ` +
+        `cap=${maxSources}) → ${strategies.length * activeSources.length} search call(s) planned`
     );
 
     const result = await runJobDiscoveryForUser(

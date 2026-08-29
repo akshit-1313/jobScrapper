@@ -33,6 +33,13 @@ export const SearchParametersSchema = z.object({
     desired_skills: termList,
     excluded_skills: termList,
     excluded_roles: termList,
+    /**
+     * Job sources the user wants searched. Empty means ALL globally active
+     * sources, which is the existing behaviour for every user. Ids are
+     * intersected with job_sources.active = true at query time, so this can
+     * only ever narrow the pool — never widen it past the allow-list.
+     */
+    selected_source_ids: z.array(z.string().uuid()).max(50).optional().default([]),
 });
 
 export type SearchParametersValues = z.infer<typeof SearchParametersSchema>;
@@ -45,7 +52,33 @@ export const EMPTY_SEARCH_PARAMETERS: SearchParametersValues = {
     desired_skills: [],
     excluded_skills: [],
     excluded_roles: [],
+    selected_source_ids: [],
 };
+
+/**
+ * Eligible discovery sources for a user.
+ *
+ * The global allow-list is applied LAST and unconditionally: only sources the
+ * caller passes in (already filtered to active = true) can appear, so a stale,
+ * deactivated or fabricated id contributes nothing. An empty selection means
+ * "all", preserving the behaviour every user has today.
+ *
+ * Ordering is preserved exactly as given, so the caller's deterministic
+ * rotation (last_crawled_at, priority, id) is untouched.
+ */
+export function resolveEligibleSources<T extends { id: string }>(
+    activeSources: T[],
+    selectedIds: string[] | null | undefined
+): T[] {
+    const selected = new Set((selectedIds ?? []).filter(id => typeof id === 'string' && id.length > 0));
+    if (selected.size === 0) return activeSources;
+
+    const narrowed = activeSources.filter(s => selected.has(s.id));
+
+    // Every selected id is stale or inactive: fall back to the full allow-list
+    // rather than silently disabling discovery for the user.
+    return narrowed.length > 0 ? narrowed : activeSources;
+}
 
 /** Coerce a stored row into form values, tolerating nulls and legacy spellings. */
 export function toSearchParameters(row: Record<string, unknown> | null | undefined): SearchParametersValues {
@@ -67,6 +100,7 @@ export function toSearchParameters(row: Record<string, unknown> | null | undefin
         desired_skills: list(row?.desired_skills),
         excluded_skills: list(row?.excluded_skills),
         excluded_roles: list(row?.excluded_roles),
+        selected_source_ids: list(row?.selected_source_ids),
     };
 }
 

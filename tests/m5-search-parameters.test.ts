@@ -53,6 +53,8 @@ const INTENDED = {
     desired_skills: ['Apex', 'LWC', 'SOQL'],
     excluded_skills: [],
     excluded_roles: [],
+    // Empty = all globally active sources, the default for every user.
+    selected_source_ids: [],
 };
 
 describe('Search Parameters', () => {

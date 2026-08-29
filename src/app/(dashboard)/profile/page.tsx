@@ -19,7 +19,7 @@ export default async function ProfilePage() {
     }
 
     // Parallel fetch for speed
-    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes, prefsRes] = await Promise.all([
+    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes, prefsRes, sourcesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('user_id', authData.user.id).single(),
         supabase.from('candidate_skills').select('*').eq('user_id', authData.user.id),
         supabase.from('candidate_experience').select('*').eq('user_id', authData.user.id),
@@ -28,8 +28,11 @@ export default async function ProfilePage() {
         supabase.from('candidate_education').select('*').eq('user_id', authData.user.id).order('end_date', { ascending: false }),
         supabase.from('candidate_certifications').select('*').eq('user_id', authData.user.id).order('issue_date', { ascending: false }),
         supabase.from('candidate_preferences').select(
-            'desired_roles, work_modes, geographic_preferences, remote_search_terms, desired_skills, excluded_skills, excluded_roles'
+            'desired_roles, work_modes, geographic_preferences, remote_search_terms, desired_skills, excluded_skills, excluded_roles, selected_source_ids'
         ).eq('user_id', authData.user.id).maybeSingle(),
+        // Only globally active sources are offered. The allow-list is applied
+        // again server-side at run time, so the UI cannot widen it.
+        supabase.from('job_sources').select('id, name').eq('active', true).order('name'),
     ])
 
     const profileData = profileRes.data || null
@@ -39,6 +42,7 @@ export default async function ProfilePage() {
     const educationData = eduRes.data || []
     const certificationsData = certRes.data || []
     const searchParameters = toSearchParameters(prefsRes.data)
+    const availableSources = (sourcesRes.data || []) as Array<{ id: string; name: string }>
 
     // Drives whether the manual job search is available — searches are built
     // from this data, so an empty profile has nothing to search with.
@@ -76,7 +80,7 @@ export default async function ProfilePage() {
 
                 {/* 3. Explicit, user-triggered job search + matching */}
                 <FindJobsButton hasProfileData={hasProfileData} />
-                <SearchParametersPanel initialValues={searchParameters} />
+                <SearchParametersPanel initialValues={searchParameters} availableSources={availableSources} />
 
                 {/* Editable forms */}
                 <ProfileForm initialData={profileData} />
