@@ -1,16 +1,13 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, Filter, Briefcase, MapPin, RefreshCw, ChevronDown, ChevronUp, Bookmark } from 'lucide-react';
+import { Search, Filter, Briefcase, MapPin, ChevronDown, ChevronUp, Bookmark } from 'lucide-react';
 import { FormEvent, useState, useTransition } from 'react';
-import { triggerDiscoveryAction } from '@/app/actions/discovery-actions';
-import { toast } from 'sonner';
 
 export function JobSearchFilters() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [isPending, startTransition] = useTransition();
-    const [isDiscovering, setIsDiscovering] = useState(false);
     const [showAdvanced, setShowAdvanced] = useState(false);
 
     // Common
@@ -61,17 +58,23 @@ export function JobSearchFilters() {
         });
     };
 
-    const handleRunDiscovery = async () => {
-        setIsDiscovering(true);
-        toast.info("Discovery initiated. This crawl operation runs sequentially securely...");
-        const res = await triggerDiscoveryAction();
-        setIsDiscovering(false);
-        if (res.success) {
-            toast.success("Discovery Synced correctly.", { description: "See Dashboard metrics for raw extraction rates." });
-        } else {
-            toast.error("Discovery error", { description: res.error });
-        }
-    };
+    // Sync Now was REMOVED here deliberately.
+    //
+    // It called triggerDiscoveryAction -> runJobDiscovery -> the raw M2 runner
+    // with no overrides, which meant: all 10 active sources, up to 5 URLs each
+    // (up to 50 extractions per click), no extraction reservation, no
+    // wall-clock budget, discover() bypassing the Firecrawl rate gate, and no
+    // m8_cron_runs mutex — so it could also run concurrently with Find
+    // Matching Jobs and with the daily cron.
+    //
+    // It only looked harmless because discover() mis-parses the Firecrawl v2
+    // MapData.links shape and returns []. Repairing that would activate the
+    // unbounded path, so the UI entry point is withdrawn first.
+    //
+    // triggerDiscoveryAction, runJobDiscovery and runJobDiscoveryForUser are
+    // intentionally left in place; only the way a user could reach them is
+    // gone. Find Matching Jobs on /profile is unaffected and still uses the
+    // validated Phase 3 engine.
 
     return (
         <form onSubmit={handleSearch} className="glass-panel p-4 rounded-xl shadow-sm mb-6 flex flex-col gap-4">
@@ -98,16 +101,6 @@ export function JobSearchFilters() {
                         {isPending ? 'Searching...' : 'Apply Filters'}
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={handleRunDiscovery}
-                        disabled={isDiscovering}
-                        className="flex items-center gap-2 px-3 py-2.5 bg-slate-900 border border-slate-900 rounded-lg text-sm font-medium text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
-                        title="Run bounded discovery manually"
-                    >
-                        <RefreshCw className={`h-4 w-4 ${isDiscovering ? 'animate-spin' : ''}`} />
-                        <span className="hidden sm:inline">Sync Now</span>
-                    </button>
                 </div>
             </div>
 
