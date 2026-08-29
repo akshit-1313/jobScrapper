@@ -9,6 +9,12 @@ import {
     type UserMatch,
 } from '@/lib/jobs/job-ranking'
 import { SaveSearchButton } from './save-search-button' // Optional button I will add to save searches
+import {
+    buildSavedStatusMap,
+    buildAppliedSet,
+    filterJobsByStatus,
+    parseJobStatusFilter,
+} from '@/lib/jobs/job-status'
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
     const supabase = await createClient()
@@ -32,6 +38,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     const visaSponsorship = typeof params.visa_sponsorship === 'string' ? params.visa_sponsorship : ''
     const postedAfter = typeof params.posted_after === 'string' ? params.posted_after : ''
     const skillsParam = typeof params.skills === 'string' && params.skills.trim() !== '' ? params.skills.split(',').map(s => s.trim()) : []
+    // Saved / applied live in per-user tables, so this filter is applied after
+    // the shared jobs query rather than pushed into it.
+    const statusFilter = parseJobStatusFilter(params.status)
 
     // Build the select dynamically for !inner join necessity
     let selectClause = `
@@ -115,6 +124,21 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id;
 
+    // Per-user tracking state for this page of jobs. Both queries are scoped to
+    // the authenticated user and RLS restricts them to that user's rows, so no
+    // other user's saved/applied state can reach the render.
+    let savedStatuses = buildSavedStatusMap(null);
+    let appliedJobIds = buildAppliedSet(null);
+
+    if (userId) {
+        const [{ data: savedRows }, { data: appliedRows }] = await Promise.all([
+            supabase.from('saved_jobs').select('job_id, status').eq('user_id', userId),
+            supabase.from('applications').select('job_id').eq('user_id', userId),
+        ]);
+        savedStatuses = buildSavedStatusMap(savedRows);
+        appliedJobIds = buildAppliedSet(appliedRows);
+    }
+
     // Attach the current user's M6 match (if any) and order by relevance.
     // The score is read from job_matches, never recomputed here.
     const rawJobs = (jobs || []) as unknown as Array<
@@ -129,11 +153,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         ? ranked
         : rawJobs.map(job => ({ job, match: extractUserMatch(job, userId) }));
 
-    const displayJobs = ordered.map(({ job, match }) => ({
+    const allDisplayJobs = ordered.map(({ job, match }) => ({
         ...job,
         match_score: match?.overall_score,
         user_match: match,
     })) as unknown as Array<JobWithLocationsAndSkills & { user_match: UserMatch | null }>;
+
+    const displayJobs = filterJobsByStatus(allDisplayJobs, statusFilter, savedStatuses, appliedJobIds);
 
     return (
         <div className="space-y-8 pb-12">
@@ -157,7 +183,12 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
                     {displayJobs.map(job => (
-                        <JobCard key={job.id} job={job} />
+                        <JobCard
+                            key={job.id}
+                            job={job}
+                            savedStatus={savedStatuses.get(job.id) ?? null}
+                            applied={appliedJobIds.has(job.id)}
+                        />
                     ))}
                 </div>
             )}

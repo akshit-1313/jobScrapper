@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, Filter, Briefcase, MapPin, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Filter, Briefcase, MapPin, RefreshCw, ChevronDown, ChevronUp, Bookmark } from 'lucide-react';
 import { FormEvent, useState, useTransition } from 'react';
 import { triggerDiscoveryAction } from '@/app/actions/discovery-actions';
 import { toast } from 'sonner';
@@ -18,6 +18,8 @@ export function JobSearchFilters() {
     const [workMode, setWorkMode] = useState(searchParams.get('work_mode') || '');
     const [employmentType, setEmploymentType] = useState(searchParams.get('employment_type') || '');
     const [sort, setSort] = useState(searchParams.get('sort') || 'relevance');
+    // Tracking state filter: saved / applied / not yet applied.
+    const [status, setStatus] = useState(searchParams.get('status') || '');
 
     // Advanced
     const [country, setCountry] = useState(searchParams.get('country') || '');
@@ -40,6 +42,7 @@ export function JobSearchFilters() {
         if (workMode) params.set('work_mode', workMode); else params.delete('work_mode');
         if (employmentType) params.set('employment_type', employmentType); else params.delete('employment_type');
         if (sort && sort !== 'relevance') params.set('sort', sort); else params.delete('sort');
+        if (status) params.set('status', status); else params.delete('status');
 
         // Advanced mapping exactly matching schema limits
         if (country) params.set('country', country); else params.delete('country');
@@ -139,6 +142,21 @@ export function JobSearchFilters() {
                             <option value="newest">Newest First</option>
                             <option value="recently_discovered">Recently Discovered</option>
                             <option value="salary_high">Highest Salary</option>
+                        </select>
+                    </div>
+
+                    <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 focus-within:ring-2 ring-blue-500">
+                        <Bookmark className="w-4 h-4 text-slate-400 mr-2" />
+                        <select
+                            value={status}
+                            onChange={(e) => setStatus(e.target.value)}
+                            aria-label="Filter by tracking status"
+                            className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none appearance-none flex-1 py-1"
+                        >
+                            <option value="">All Jobs</option>
+                            <option value="saved">Saved</option>
+                            <option value="applied">Applied</option>
+                            <option value="not_applied">Not Applied</option>
                         </select>
                     </div>
 

@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
-import { CreateOrUpdateSavedJobSchema } from '@/lib/types/tracking'
+import { CreateOrUpdateSavedJobSchema, RemoveSavedJobSchema } from '@/lib/types/tracking'
 
 export async function createOrUpdateSavedJob(input: { jobId: string, status: string }) {
     try {
@@ -35,6 +35,51 @@ export async function createOrUpdateSavedJob(input: { jobId: string, status: str
         }
 
         return { success: true, data: { status } }
+
+    } catch (error) {
+        console.error('Saved Jobs Error:', error)
+        return { success: false, error: 'An unexpected internal error occurred.' }
+    }
+}
+
+/**
+ * Remove a job from the user's saved list, returning it to the unsaved state.
+ *
+ * saved_jobs has no 'none' status — one row per (user_id, job_id) exists or it
+ * does not — so unsaving deletes the row. saved_jobs already carries a DELETE
+ * policy scoped to `auth.uid() = user_id` (migration 006), so this needs no
+ * schema or policy change, and the `.eq('user_id', user.id)` below means the
+ * statement cannot touch another user's row even if RLS were absent.
+ *
+ * Idempotent: deleting a row that is already gone is a success, so a
+ * double-click cannot produce an error.
+ */
+export async function removeSavedJob(input: { jobId: string }) {
+    try {
+        const supabase = await createClient()
+
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) {
+            return { success: false, error: 'Unauthorized' }
+        }
+
+        const validated = RemoveSavedJobSchema.safeParse(input)
+        if (!validated.success) {
+            return { success: false, error: 'Invalid input parameters' }
+        }
+
+        const { error: deleteError } = await supabase
+            .from('saved_jobs')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('job_id', validated.data.jobId)
+
+        if (deleteError) {
+            console.error('Saved Jobs Error:', deleteError)
+            return { success: false, error: 'Database rejected the tracking operation.' }
+        }
+
+        return { success: true, data: { status: null } }
 
     } catch (error) {
         console.error('Saved Jobs Error:', error)

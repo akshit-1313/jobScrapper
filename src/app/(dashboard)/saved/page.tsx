@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server'
 import { JobCard } from '@/components/job-card'
 import { JobWithLocationsAndSkills } from '@/lib/types/jobs'
 import { BookmarkIcon } from 'lucide-react'
+import { buildAppliedSet, type SavedJobStatusValue } from '@/lib/jobs/job-status'
 import Link from 'next/link'
 
 export default async function SavedPage({
@@ -37,6 +38,13 @@ export default async function SavedPage({
         .eq('status', currentTab)
 
     const parsedJobs = (savedJobs || []).map(sj => sj.jobs) as unknown as JobWithLocationsAndSkills[]
+
+    // Applied state for the cards on this page, scoped to the current user.
+    const { data: appliedRows } = await supabase
+        .from('applications')
+        .select('job_id')
+        .eq('user_id', user.id)
+    const appliedJobIds = buildAppliedSet(appliedRows)
 
     const [savedR, archivedR, ignoredR] = await Promise.all([
         supabase.from('saved_jobs').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'saved'),
@@ -82,7 +90,12 @@ export default async function SavedPage({
             ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
                     {parsedJobs.map(job => (
-                        <JobCard key={job.id} job={job} />
+                        <JobCard
+                            key={job.id}
+                            job={job}
+                            savedStatus={currentTab as SavedJobStatusValue}
+                            applied={appliedJobIds.has(job.id)}
+                        />
                     ))}
                 </div>
             )}

@@ -1,8 +1,10 @@
 import Link from 'next/link'
-import { MapPin, Briefcase, DollarSign, Building } from 'lucide-react'
+import { MapPin, Briefcase, DollarSign, Building, CheckCircle2, Sparkles } from 'lucide-react'
 import { JobWithLocationsAndSkills } from '@/lib/types/jobs'
 import { formatDistanceToNow } from 'date-fns'
 import { matchTier, matchReasons, type UserMatch } from '@/lib/jobs/job-ranking'
+import { isRecentlyDiscovered, type SavedJobStatusValue } from '@/lib/jobs/job-status'
+import { SaveJobButton } from '@/components/jobs/save-job-button'
 
 const TIER_BADGE: Record<string, string> = {
     strong: 'bg-gradient-to-r from-emerald-600 to-green-600',
@@ -11,8 +13,17 @@ const TIER_BADGE: Record<string, string> = {
     weak: 'bg-slate-400',
 }
 
-export function JobCard({ job }: { job: JobWithLocationsAndSkills & { user_match?: UserMatch | null } }) {
+interface JobCardProps {
+    job: JobWithLocationsAndSkills & { user_match?: UserMatch | null }
+    /** Persisted saved_jobs state for the current user. Absent row = not saved. */
+    savedStatus?: SavedJobStatusValue | null
+    /** True when the current user already has an application for this job. */
+    applied?: boolean
+}
+
+export function JobCard({ job, savedStatus = null, applied = false }: JobCardProps) {
     const reasons = matchReasons(job.user_match ?? null)
+    const isNew = isRecentlyDiscovered(job.discovered_at)
     const formatSalary = () => {
         if (!job.salary_min && !job.salary_max) return null
 
@@ -60,10 +71,38 @@ export function JobCard({ job }: { job: JobWithLocationsAndSkills & { user_match
                     </div>
 
                     <div className="flex-1 min-w-0">
-                        <h3 className="truncate text-lg font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
-                            {job.title}
-                        </h3>
-                        <p className="text-sm font-medium text-slate-600">{job.company_name}</p>
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h3 className="truncate text-lg font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                    {job.title}
+                                </h3>
+                                <p className="text-sm font-medium text-slate-600">{job.company_name}</p>
+                            </div>
+                            <SaveJobButton jobId={job.id} initialSavedStatus={savedStatus} />
+                        </div>
+
+                        {/* Tracking state, read from saved_jobs / applications. Never inferred. */}
+                        {(applied || isNew || savedStatus === 'saved') && (
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                {applied && (
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
+                                        <CheckCircle2 className="h-3 w-3" />
+                                        Applied
+                                    </span>
+                                )}
+                                {savedStatus === 'saved' && (
+                                    <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                                        Saved
+                                    </span>
+                                )}
+                                {isNew && (
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 border border-violet-200">
+                                        <Sparkles className="h-3 w-3" />
+                                        New
+                                    </span>
+                                )}
+                            </div>
+                        )}
 
                         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
                             <div className="flex items-center gap-1">

@@ -14,6 +14,11 @@ export const CreateOrUpdateSavedJobSchema = z.object({
     status: SavedJobStatusSchema
 });
 
+/** Unsaving carries no status: the row is deleted rather than transitioned. */
+export const RemoveSavedJobSchema = z.object({
+    jobId: z.string().uuid()
+});
+
 export const TrackApplicationSchema = z.object({
     jobId: z.string().uuid()
 });
