@@ -10,6 +10,19 @@ export interface ExtractedJobData {
     url: string;
     contentHash: string;
     rawPayload: Record<string, unknown>;
+    /**
+     * Work arrangement as stated by the posting. Absent when the provider did
+     * not return one — the normalizer then falls back to 'unknown' rather than
+     * guessing.
+     */
+    workMode?: string;
+    /** Primary place of work as written in the posting, if stated. */
+    location?: string;
+    /**
+     * Eligibility scope for a remote role, verbatim (e.g. "Worldwide",
+     * "US only"). Only meaningful when workMode is remote; never inferred.
+     */
+    remoteScope?: string;
 }
 
 export interface ExtractionResult {

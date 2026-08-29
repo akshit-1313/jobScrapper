@@ -59,7 +59,11 @@ export type CandidateExperience = ExperienceFormValues & {
 
 // Preferences Schema
 export const PreferencesSchema = z.object({
+    // Search-intent fields. Edited on /profile (Search Parameters), NOT here —
+    // /preferences keeps only the matching constraints below. They stay on the
+    // schema because they are columns of the same candidate_preferences row.
     work_modes: z.array(z.string()).nullable().optional(),
+    remote_search_terms: z.array(z.string()).nullable().optional(),
     geographic_preferences: z.array(z.string()).nullable().optional(),
     desired_roles: z.array(z.string()).nullable().optional(),
     excluded_roles: z.array(z.string()).nullable().optional(),

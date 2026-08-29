@@ -99,6 +99,18 @@ function isBlank(value: unknown): boolean {
 }
 
 /**
+ * Accept a non-empty string, otherwise undefined.
+ *
+ * The extractor is instructed to return an empty string when a field is not
+ * stated, so an empty value must NOT become a persisted value.
+ */
+function asOptionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
  * True when an extraction carries enough signal to be a real job posting.
  *
  * Aggregator and listing pages scrape successfully but yield nothing: the
@@ -282,7 +294,11 @@ export class FirecrawlAdapter implements JobSourceAdapter {
 
     async extract(jobUrl: string): Promise<ExtractionResult> {
         try {
-            const prompt = `Extract the exact details of this job posting. Format strictly into JSON with NO OTHER TEXT containing exactly: title, company, description, rawPayload (any other unmapped metadata detected). If it's not a job posting, return empty strings.`;
+            const prompt = `Extract the exact details of this job posting. Format strictly into JSON with NO OTHER TEXT containing exactly: title, company, description, workMode, location, remoteScope, rawPayload (any other unmapped metadata detected). ` +
+                `workMode must be one of "remote", "hybrid", "office" or "unknown" — use "unknown" if the posting does not say. ` +
+                `location is the primary place of work as written in the posting (e.g. "Bengaluru, India"), or an empty string if none is stated. ` +
+                `remoteScope applies only when workMode is "remote": copy the stated eligibility (e.g. "Worldwide", "US only", "India only", "EMEA"), or an empty string if the posting does not state one. Never guess a scope. ` +
+                `If it's not a job posting, return empty strings.`;
 
             // Firecrawl v2 request shape (@mendable/firecrawl-js v4):
             //   formats: [{ type: 'json', prompt, schema }]
@@ -300,6 +316,12 @@ export class FirecrawlAdapter implements JobSourceAdapter {
                             title: { type: 'string' },
                             company: { type: 'string' },
                             description: { type: 'string' },
+                            // Additive: absent or unrecognised values degrade to
+                            // 'unknown' / null in the normalizer, so a provider
+                            // that omits them behaves exactly as before.
+                            workMode: { type: 'string' },
+                            location: { type: 'string' },
+                            remoteScope: { type: 'string' },
                             rawPayload: { type: 'object' }
                         },
                         required: ['title', 'company', 'description']
@@ -319,9 +341,14 @@ export class FirecrawlAdapter implements JobSourceAdapter {
             // v2 returns the structured result on `json`. `extract` / `data` are
             // accepted as fallbacks so a v1-shaped response still parses.
             const rawExtract: unknown = resultObj?.json ?? resultObj?.extract ?? resultObj?.data;
-            const payload: { title?: string; company?: string; description?: string; rawPayload?: unknown } =
+            type ExtractPayload = {
+                title?: string; company?: string; description?: string;
+                workMode?: unknown; location?: unknown; remoteScope?: unknown;
+                rawPayload?: unknown;
+            };
+            const payload: ExtractPayload =
                 rawExtract !== null && typeof rawExtract === 'object' && !Array.isArray(rawExtract)
-                    ? (rawExtract as { title?: string; company?: string; description?: string; rawPayload?: unknown })
+                    ? (rawExtract as ExtractPayload)
                     : {};
 
             const metadataPayload = resultObj?.metadata as Record<string, unknown> | undefined;
@@ -367,6 +394,11 @@ export class FirecrawlAdapter implements JobSourceAdapter {
                     description: payload.description || '',
                     url: jobUrl,
                     contentHash,
+                    // Passed through verbatim; the normalizer validates them
+                    // against the jobs schema and falls back safely.
+                    workMode: asOptionalString(payload.workMode),
+                    location: asOptionalString(payload.location),
+                    remoteScope: asOptionalString(payload.remoteScope),
                     rawPayload: rawPayloadNorm,
                 }
             };

@@ -5,6 +5,8 @@ import { ExperienceForm } from '@/components/profile/experience-form'
 import { ResumeSection } from '@/components/resume/resume-section'
 import { StructuredProfile } from '@/components/profile/structured-profile'
 import { FindJobsButton } from '@/components/profile/find-jobs-button'
+import { SearchParametersPanel } from '@/components/profile/search-parameters-panel'
+import { toSearchParameters } from '@/lib/types/search-parameters'
 import { redirect } from 'next/navigation'
 import type { ResumeVersion } from '@/lib/types/resume'
 
@@ -17,7 +19,7 @@ export default async function ProfilePage() {
     }
 
     // Parallel fetch for speed
-    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes] = await Promise.all([
+    const [profileRes, skillsRes, expRes, resumeRes, engRes, eduRes, certRes, prefsRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('user_id', authData.user.id).single(),
         supabase.from('candidate_skills').select('*').eq('user_id', authData.user.id),
         supabase.from('candidate_experience').select('*').eq('user_id', authData.user.id),
@@ -25,6 +27,9 @@ export default async function ProfilePage() {
         supabase.from('candidate_engagements').select('*').eq('user_id', authData.user.id).order('start_date', { ascending: false }),
         supabase.from('candidate_education').select('*').eq('user_id', authData.user.id).order('end_date', { ascending: false }),
         supabase.from('candidate_certifications').select('*').eq('user_id', authData.user.id).order('issue_date', { ascending: false }),
+        supabase.from('candidate_preferences').select(
+            'desired_roles, work_modes, geographic_preferences, remote_search_terms, desired_skills, excluded_skills, excluded_roles'
+        ).eq('user_id', authData.user.id).maybeSingle(),
     ])
 
     const profileData = profileRes.data || null
@@ -33,6 +38,7 @@ export default async function ProfilePage() {
     const engagementsData = engRes.data || []
     const educationData = eduRes.data || []
     const certificationsData = certRes.data || []
+    const searchParameters = toSearchParameters(prefsRes.data)
 
     // Drives whether the manual job search is available — searches are built
     // from this data, so an empty profile has nothing to search with.
@@ -70,6 +76,7 @@ export default async function ProfilePage() {
 
                 {/* 3. Explicit, user-triggered job search + matching */}
                 <FindJobsButton hasProfileData={hasProfileData} />
+                <SearchParametersPanel initialValues={searchParameters} />
 
                 {/* Editable forms */}
                 <ProfileForm initialData={profileData} />

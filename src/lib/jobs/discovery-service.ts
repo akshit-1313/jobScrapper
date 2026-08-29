@@ -195,7 +195,13 @@ export async function runJobDiscoveryForUser(
                         }
 
                         // 6. Normalize (incorporating generated canonical_id natively via domain structure)
-                        const normalizedJob = JobNormalizer.normalize(extraction.data, sourceRootDomain);
+                        const normalizedJobFull = JobNormalizer.normalize(extraction.data, sourceRootDomain);
+                        // `location` is not a jobs column: split it out before any
+                        // insert/update and persist it to job_locations below.
+                        const extractedLocation = normalizedJobFull?.location ?? null;
+                        const normalizedJob = normalizedJobFull
+                            ? (({ location, ...rest }) => rest)(normalizedJobFull)
+                            : null;
                         if (!normalizedJob || !normalizedJob.canonical_id) {
                             await markCrawlRunFailed(crawlRun.id, "Normalization failed (Missing mapping schema constraints)");
                             errorsFound++;
@@ -302,6 +308,33 @@ export async function runJobDiscoveryForUser(
                                     is_active: true,
                                     last_seen_at: new Date().toISOString()
                                 });
+                        }
+
+                        // 8b. Location, when the posting stated one. Written
+                        // separately because job_locations is its own table.
+                        // Nothing is inferred: no extracted location means no row.
+                        if (extractedLocation) {
+                            const { data: existingLoc } = await adminClient
+                                .from('job_locations')
+                                .select('id')
+                                .eq('job_id', jobTargetId)
+                                .limit(1)
+                                .maybeSingle();
+
+                            if (existingLoc) {
+                                await adminClient
+                                    .from('job_locations')
+                                    .update({ city: extractedLocation.city, country: extractedLocation.country })
+                                    .eq('id', existingLoc.id);
+                            } else {
+                                await adminClient
+                                    .from('job_locations')
+                                    .insert({
+                                        job_id: jobTargetId,
+                                        city: extractedLocation.city,
+                                        country: extractedLocation.country,
+                                    });
+                            }
                         }
 
                         // 9. Update stats globally
@@ -434,7 +467,9 @@ export async function buildStrategiesForUser(
         adminClient.from('candidate_skills').select('skill_name, category, is_primary').eq('user_id', userId),
         adminClient.from('candidate_experience').select('title, is_current').eq('user_id', userId),
         adminClient.from('candidate_engagements').select('technologies, domains').eq('user_id', userId),
-        adminClient.from('candidate_preferences').select('desired_roles, excluded_roles, geographic_preferences').eq('user_id', userId).maybeSingle(),
+        adminClient.from('candidate_preferences').select(
+            'desired_roles, excluded_roles, geographic_preferences, work_modes, remote_search_terms, desired_skills, excluded_skills'
+        ).eq('user_id', userId).maybeSingle(),
     ]);
 
     return buildSearchStrategies(

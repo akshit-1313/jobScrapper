@@ -41,6 +41,14 @@ export interface StrategyPreferences {
     desired_roles?: string[] | null
     excluded_roles?: string[] | null
     geographic_preferences?: string[] | null
+    /** Preferred work modes. Only 'remote' influences query wording. */
+    work_modes?: string[] | null
+    /** Remote-intent phrases, rotated across strategies. Empty adds nothing. */
+    remote_search_terms?: string[] | null
+    /** Extra keywords the user wants searched alongside profile skills. */
+    desired_skills?: string[] | null
+    /** Keywords removed from the query skill pool entirely. */
+    excluded_skills?: string[] | null
 }
 
 export interface StrategyInput {
@@ -58,6 +66,10 @@ export interface SearchStrategy {
     title: string
     /** Skills included in this query. */
     skills: string[]
+    /** Remote-intent phrase applied to this query, if any. */
+    remoteTerm?: string
+    /** Geographic term applied to this query, if any. */
+    geoTerm?: string
     /** Why this query exists — for logging and admin display. */
     rationale: string
 }
@@ -271,6 +283,77 @@ export function rankSkills(
     return { core, secondary, domains }
 }
 
+// ── Search intent: work mode and geography ──────────────────────────────────
+//
+// These come from the user's saved Search Parameters (candidate_preferences),
+// never from the profile's current_location and never from a built-in default.
+// An empty parameter contributes NOTHING to the query — no work-mode emphasis,
+// no geographic restriction, no invented remote wording.
+
+/**
+ * Geographic values meaning "everywhere", which must NOT narrow the query.
+ *
+ * Selecting Worldwide expresses the absence of a restriction, so it adds no
+ * term at all rather than the literal word — searching for "worldwide" would
+ * narrow results to pages that happen to use that word.
+ */
+const WORLDWIDE_SENTINELS = new Set(['worldwide', 'global', 'globally', 'any', 'anywhere'])
+
+/** Work mode whose preference is expressible as a search term. */
+const REMOTE_WORK_MODE = 'remote'
+
+function cleanList(values: string[] | null | undefined): string[] {
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const raw of values ?? []) {
+        if (typeof raw !== 'string') continue
+        const trimmed = raw.trim()
+        if (!trimmed) continue
+        const key = trimmed.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(trimmed)
+    }
+    return out
+}
+
+/** Quote multi-word phrases so the provider treats them as one term. */
+export function quoteTerm(term: string): string {
+    const trimmed = term.trim()
+    if (!trimmed) return ''
+    return /\s/.test(trimmed) ? `"${trimmed}"` : trimmed
+}
+
+/**
+ * Concrete geographic terms to add to queries.
+ *
+ * Worldwide/any resolves to an EMPTY list: the user is asking not to be
+ * restricted, so no country is invented and no local geography is inferred.
+ * Country- or region-specific values are passed through verbatim.
+ */
+export function resolveGeoTerms(geographicPreferences: string[] | null | undefined): string[] {
+    return cleanList(geographicPreferences).filter(g => !WORLDWIDE_SENTINELS.has(g.toLowerCase()))
+}
+
+/**
+ * Remote-intent phrases to rotate across queries.
+ *
+ * Requires the user to have selected Remote as a work mode — without it there
+ * is no work-mode emphasis at all. The WORDING comes from the user's saved
+ * remote_search_terms; when they saved none, the single literal mode word is
+ * used rather than inventing phrasings like "work from anywhere".
+ */
+export function resolveRemoteTerms(
+    workModes: string[] | null | undefined,
+    remoteSearchTerms: string[] | null | undefined
+): string[] {
+    const modes = cleanList(workModes).map(m => m.toLowerCase())
+    if (!modes.includes(REMOTE_WORK_MODE)) return []
+
+    const terms = cleanList(remoteSearchTerms)
+    return terms.length > 0 ? terms : [REMOTE_WORK_MODE]
+}
+
 // ── Experience level ────────────────────────────────────────────────────────
 
 export function deriveExperienceLevel(years: number | null | undefined): string | null {
@@ -321,8 +404,24 @@ export function buildSearchStrategies(
     if (titles.length === 0) return []
 
     // ── Skills ──
+    // User-supplied keywords lead: an explicit Search Parameter outranks a
+    // skill inferred from the resume. Excluded keywords are removed entirely.
     const { core, secondary } = rankSkills(input.skills, input.engagements)
-    const pool = [...core, ...secondary]
+    const excludedSkills = new Set(
+        cleanList(input.preferences?.excluded_skills).map(s => s.toLowerCase())
+    )
+    const pool = [
+        ...cleanList(input.preferences?.desired_skills),
+        ...core,
+        ...secondary,
+    ].filter(s => !excludedSkills.has(s.toLowerCase()))
+
+    // ── Search intent (empty parameters contribute nothing) ──
+    const remoteTerms = resolveRemoteTerms(
+        input.preferences?.work_modes,
+        input.preferences?.remote_search_terms
+    )
+    const geoTerms = resolveGeoTerms(input.preferences?.geographic_preferences)
 
     const strategies: SearchStrategy[] = []
     let skillCursor = 0
@@ -341,17 +440,34 @@ export function buildSearchStrategies(
         cluster = [...new Set(cluster)]
 
         const display = presentTitle(title)
-        const query = cluster.length > 0
-            ? `"${display}" ${cluster.join(' ')}`
-            : `"${display}"`
+
+        // Rotate intent terms the way skill clusters already rotate, so the
+        // queries carry DIFFERENT remote phrasings instead of the same suffix
+        // repeated. Adds no query — only changes wording within existing ones.
+        const idx = strategies.length
+        const remoteTerm = remoteTerms.length > 0 ? remoteTerms[idx % remoteTerms.length] : undefined
+        const geoTerm = geoTerms.length > 0 ? geoTerms[idx % geoTerms.length] : undefined
+
+        const parts = [`"${display}"`]
+        if (cluster.length > 0) parts.push(cluster.join(' '))
+        if (remoteTerm) parts.push(quoteTerm(remoteTerm))
+        if (geoTerm) parts.push(quoteTerm(geoTerm))
+
+        const rationaleBits: string[] = [
+            cluster.length > 0
+                ? `paired with ${cluster.length} skill(s)`
+                : 'no skills available in profile',
+        ]
+        if (remoteTerm) rationaleBits.push(`remote intent "${remoteTerm}"`)
+        if (geoTerm) rationaleBits.push(`geography "${geoTerm}"`)
 
         strategies.push({
-            query,
+            query: parts.join(' '),
             title: display,
             skills: cluster,
-            rationale: cluster.length > 0
-                ? `Title "${display}" paired with ${cluster.length} profile skill(s)`
-                : `Title "${display}" (no skills available in profile)`,
+            remoteTerm,
+            geoTerm,
+            rationale: `Title "${display}" ${rationaleBits.join(', ')}`,
         })
     }
 

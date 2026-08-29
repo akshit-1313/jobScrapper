@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { CandidatePreferences } from '@/lib/types/profile'
 import { upsertPreferences } from '@/app/actions/preferences-actions'
 import { Save, Settings, Loader2 } from 'lucide-react'
@@ -15,12 +16,6 @@ export function PreferencesForm({ initialData }: { initialData?: CandidatePrefer
     const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<PreferencesFormValues>({
         resolver: zodResolver(PreferencesSchema),
         defaultValues: {
-            work_modes: initialData?.work_modes || [],
-            geographic_preferences: initialData?.geographic_preferences || [],
-            desired_roles: initialData?.desired_roles || [],
-            excluded_roles: initialData?.excluded_roles || [],
-            desired_skills: initialData?.desired_skills || [],
-            excluded_skills: initialData?.excluded_skills || [],
             salary_min: initialData?.salary_min || undefined,
             salary_max: initialData?.salary_max || undefined,
             salary_currency: initialData?.salary_currency || 'USD',
@@ -77,33 +72,21 @@ export function PreferencesForm({ initialData }: { initialData?: CandidatePrefer
                 {/* Work Modes (Array of Enum) */}
                 <div>
                     <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">Work Environment</h4>
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium text-slate-700">Preferred Work Modes</label>
-                        <div className="flex gap-4">
-                            {['remote', 'hybrid', 'in_office'].map((mode) => (
-                                <label key={mode} className="flex items-center gap-2 text-sm text-slate-700">
-                                    <input
-                                        type="checkbox"
-                                        value={mode}
-                                        {...register('work_modes')}
-                                        className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
-                                    />
-                                    {mode === 'in_office' ? 'In Office' : mode.charAt(0).toUpperCase() + mode.slice(1)}
-                                </label>
-                            ))}
-                        </div>
-                    </div>
                 </div>
 
-                {/* Arrays mapping */}
+                {/* Search intent now lives on /profile, which is the canonical editor.
+                    Keeping a second set of inputs here would mean two editors writing
+                    the same candidate_preferences row. */}
                 <div className="pt-2 border-t border-slate-100">
-                    <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500 mt-4 mb-4">Roles & Targeting</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <ArrayInput label="Desired Roles" field="desired_roles" placeholder="Backend Engineer, Tech Lead..." />
-                        <ArrayInput label="Excluded Roles" field="excluded_roles" placeholder="Manager, QA..." />
-                        <ArrayInput label="Desired Skills" field="desired_skills" placeholder="TypeScript, Python..." />
-                        <ArrayInput label="Excluded Skills" field="excluded_skills" placeholder="Java, PHP..." />
-                        <ArrayInput label="Geographic Preferences" field="geographic_preferences" placeholder="New York, London, Remote..." />
+                    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                        <p className="text-sm font-medium text-slate-800">Looking for target roles, work mode or keywords?</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                            Those are <strong>Search Parameters</strong> — what you want to search for — and
+                            they live with your profile.
+                        </p>
+                        <Link href="/profile#search-parameters" className="mt-2 inline-block text-sm font-medium text-blue-700 underline">
+                            Edit Search Parameters on your profile →
+                        </Link>
                     </div>
                 </div>
 
