@@ -5,6 +5,8 @@ import { DeterministicMatcher, CandidateState } from '@/lib/matching/matching-en
 import { buildMatchRow, describeWriteError } from '@/lib/matching/match-row';
 import type { JobWithLocationsAndSkills } from '@/lib/types/jobs';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { recordRunUsage } from '@/lib/firecrawl/run-accounting';
+import { refreshUsageSnapshot } from '@/lib/firecrawl/usage-service';
 
 /**
  * Scheduled daily discovery.
@@ -145,42 +147,6 @@ export async function matchUnscoredJobsForUser(
 }
 
 /**
- * Record what the run consumed.
- *
- * Written immediately after discovery returns and BEFORE the matching pass, so
- * a termination during matching cannot lose the accounting. Keyed on the search
- * run id, so a retry of the same run cannot double-count.
- */
-async function recordUsage(
-    admin: SupabaseClient,
-    userId: string,
-    runId: string,
-    creditsUsed: number,
-    pagesScraped: number,
-    unknownUsage: boolean
-): Promise<void> {
-    const now = new Date();
-    const billingMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-
-    const { error } = await admin.from('firecrawl_usage_ledgers').upsert({
-        user_id: userId,
-        billing_month: billingMonth,
-        operation_type: 'background_discovery',
-        credits_consumed: creditsUsed,
-        pages_scraped: pagesScraped,
-        reference_id: runId,
-        reconciliation_status: unknownUsage ? 'provider_usage_unknown' : 'reconciled',
-        idempotency_key: `scheduled_discovery_run_${runId}`,
-    }, { onConflict: 'idempotency_key' });
-
-    if (error) {
-        // Non-fatal: the run itself succeeded and crawl_runs already record the
-        // pages. Losing the ledger row must not fail the invocation.
-        console.error(`[ScheduledDiscovery] usage ledger write failed: ${describeWriteError(error)}`);
-    }
-}
-
-/**
  * Select and process at most ONE opted-in user.
  *
  * One user per invocation is deliberate: a single profile-targeted run already
@@ -230,10 +196,25 @@ export async function runScheduledDailyDiscovery(): Promise<ScheduledRunResult> 
         };
     }
 
-    await recordUsage(
-        admin, userId, discovery.runId,
-        discovery.creditsUsed, discovery.pagesScraped, discovery.unknownUsage
-    );
+    // Written immediately after discovery and BEFORE matching, so a
+    // termination during matching cannot lose it. Extraction-only, so it is
+    // recorded as provider_usage_unknown rather than a whole-run total.
+    await recordRunUsage(admin, {
+        userId,
+        runId: discovery.runId,
+        creditsUsed: discovery.creditsUsed,
+        pagesScraped: discovery.pagesScraped,
+        unknownUsage: discovery.unknownUsage,
+        runError: discovery.runError,
+        operation: 'background_discovery',
+    });
+
+    // One balance refresh per scheduled run, subject to the TTL.
+    try {
+        await refreshUsageSnapshot();
+    } catch (err) {
+        console.error('[ScheduledDiscovery] usage snapshot refresh failed (non-fatal):', err);
+    }
 
     // Advance the rotation so a different opted-in user leads tomorrow.
     const { error: stampError } = await admin

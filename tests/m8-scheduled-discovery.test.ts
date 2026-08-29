@@ -282,7 +282,9 @@ describe('Scheduled daily discovery', () => {
             await runScheduledDailyDiscovery();
 
             const ledger = admin.upserts.find(u => u.table === 'firecrawl_usage_ledgers');
-            expect(ledger?.payload.idempotency_key).toBe('scheduled_discovery_run_run-xyz');
+            // Key now comes from the shared run-accounting helper, which the
+            // manual path uses too; the operation prefix keeps them distinct.
+            expect(ledger?.payload.idempotency_key).toBe('background_discovery_run_run-xyz');
             expect(ledger?.payload.reference_id).toBe('run-xyz');
             expect(ledger?.options).toEqual({ onConflict: 'idempotency_key' });
         });

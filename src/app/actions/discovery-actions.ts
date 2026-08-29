@@ -52,6 +52,30 @@ export async function findMatchingJobsAction() {
 
         const discovery = await runProfileTargetedDiscovery(authData.user.id);
 
+        // Record what the run consumed. The figure is extraction-only — search
+        // credits are not provider-reported — so recordRunUsage marks it
+        // provider_usage_unknown rather than claiming a whole-run total.
+        // Non-fatal: accounting must never fail the user's search.
+        try {
+            const { createAdminClient } = await import('@/lib/supabase/admin');
+            const { recordRunUsage } = await import('@/lib/firecrawl/run-accounting');
+            await recordRunUsage(createAdminClient(), {
+                userId: authData.user.id,
+                runId: discovery.runId,
+                creditsUsed: discovery.creditsUsed,
+                pagesScraped: discovery.pagesScraped,
+                unknownUsage: discovery.unknownUsage,
+                runError: discovery.runError,
+                operation: 'manual_discovery',
+            });
+
+            // One balance refresh after the run, subject to the TTL. Never on render.
+            const { refreshUsageSnapshot } = await import('@/lib/firecrawl/usage-service');
+            await refreshUsageSnapshot();
+        } catch (accountingErr) {
+            console.error('[Discovery] Usage accounting failed (non-fatal):', accountingErr);
+        }
+
         if (discovery.strategies.length === 0) {
             return {
                 success: false,

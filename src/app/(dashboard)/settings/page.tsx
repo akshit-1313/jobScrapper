@@ -1,6 +1,8 @@
 import { createClient } from '@/utils/supabase/server';
 import { IntegrationPanel } from './integration-panel';
 import { DailyDiscoveryPanel } from './daily-discovery-panel';
+import { FirecrawlUsagePanel } from '@/components/firecrawl/firecrawl-usage-panel';
+import { getUsagePanelData } from '@/lib/firecrawl/usage-service';
 
 export default async function SettingsPage() {
     const supabase = await createClient();
@@ -37,6 +39,9 @@ export default async function SettingsPage() {
         hasProfileData = Boolean(profileRes.data?.headline) || (skillsRes.count ?? 0) > 0;
     }
 
+    // Stored snapshot only — no provider call on render.
+    const usage = await getUsagePanelData(dailyEnabled);
+
     return (
         <div className="space-y-6">
             <div>
@@ -49,6 +54,8 @@ export default async function SettingsPage() {
                 hasProfileData={hasProfileData}
                 lastRunAt={lastRunAt}
             />
+
+            <FirecrawlUsagePanel usage={usage} dailyDiscoveryEnabled={dailyEnabled} />
 
             {/* Injected dynamically cleanly seamlessly intuitively securely correctly smartly functionally dependably accurately stably. */}
             <IntegrationPanel integrations={integrations} />
