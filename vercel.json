@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/daily-discovery",
+      "schedule": "0 4 * * *"
+    }
+  ],
   "env": {
     "PROFILE_SEARCH_TIMEOUT_SECONDS": "55",
     "PROFILE_EXTRACTION_RESERVATION_SECONDS": "45"
