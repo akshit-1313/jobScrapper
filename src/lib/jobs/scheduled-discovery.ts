@@ -1,0 +1,279 @@
+import { createAdminClient } from '@/lib/supabase/admin';
+import { runProfileTargetedDiscovery } from './discovery-service';
+import { ExecutionBudget } from './discovery-lock';
+import { DeterministicMatcher, CandidateState } from '@/lib/matching/matching-engine';
+import { buildMatchRow, describeWriteError } from '@/lib/matching/match-row';
+import type { JobWithLocationsAndSkills } from '@/lib/types/jobs';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+/**
+ * Scheduled daily discovery.
+ *
+ * Runs the SAME profile-targeted flow as the manual "Find matching jobs"
+ * button — `runProfileTargetedDiscovery` is called unmodified, so every
+ * validated control applies here automatically: the m8_cron_runs mutex, stale
+ * lock recovery, the Firecrawl rate gate and its 6s spacing, the 3-source cap,
+ * deterministic source rotation, the 4-URL extraction cap, the 55s execution
+ * budget and the 45s extraction reservation.
+ *
+ * This module adds only what a scheduled run needs on top of that:
+ *   - eligibility (explicit per-user opt-in, one user per invocation)
+ *   - fair rotation between opted-in users
+ *   - usage accounting written immediately after discovery
+ *   - matching, which the interactive path gets from a server action that
+ *     requires a session the cron does not have
+ *
+ * M8's executeBackgroundDiscovery is NOT used and remains dormant.
+ */
+
+/**
+ * Whole-invocation budget, under Vercel Hobby's 60s hard kill.
+ *
+ * Discovery polices itself with its own 55s budget; this outer clock exists so
+ * the work that happens AFTER discovery returns cannot push the function past
+ * the ceiling.
+ */
+export const SCHEDULED_INVOCATION_BUDGET_SECONDS = 57;
+
+/** Reserved before starting the matching pass. Skipped if it will not fit. */
+export const SCHEDULED_MATCH_RESERVATION_MS = 3_000;
+
+/** Upper bound on match writes per invocation. Keeps the tail predictable. */
+export const SCHEDULED_MATCH_LIMIT = 10;
+
+/** Candidate jobs considered when looking for unscored ones. */
+const SCHEDULED_MATCH_SCAN_LIMIT = 50;
+
+export interface ScheduledRunResult {
+    /** How many users are opted in right now. */
+    eligibleUsers: number;
+    /** The user processed this invocation, if any. */
+    processedUserId: string | null;
+    pagesScraped: number;
+    /** Matches written by the post-discovery matching pass. */
+    matchesPersisted: number;
+    /** True when another discovery cycle held the lock and this run stood down. */
+    concurrencyAborted: boolean;
+    /** True when discovery stopped early on its own execution budget. */
+    timedOut: boolean;
+    /** True when the matching pass was skipped to stay inside the budget. */
+    matchingSkipped: boolean;
+    reason?: string;
+}
+
+/** Load candidate state with the service-role client: the cron has no session. */
+async function loadCandidateState(
+    admin: SupabaseClient,
+    userId: string
+): Promise<CandidateState | null> {
+    const [profileRes, skillsRes, expRes, prefsRes] = await Promise.all([
+        admin.from('profiles').select('*').eq('user_id', userId).maybeSingle(),
+        admin.from('candidate_skills').select('*').eq('user_id', userId),
+        admin.from('candidate_experience').select('*').eq('user_id', userId),
+        admin.from('candidate_preferences').select('*').eq('user_id', userId).maybeSingle(),
+    ]);
+
+    if (!profileRes.data && !skillsRes.data?.length && !expRes.data?.length) {
+        return null;
+    }
+
+    return {
+        profile: profileRes.data || null,
+        skills: skillsRes.data || [],
+        experience: expRes.data || [],
+        preferences: prefsRes.data || null,
+    };
+}
+
+/**
+ * Score the user's active jobs that have no match row yet.
+ *
+ * Targeting UNSCORED jobs rather than "jobs from this run" keeps the pass
+ * bounded and self-healing: anything a previous run could not finish is picked
+ * up the next day instead of staying unscored forever.
+ */
+export async function matchUnscoredJobsForUser(
+    admin: SupabaseClient,
+    userId: string,
+    limit: number = SCHEDULED_MATCH_LIMIT
+): Promise<{ persisted: number; failed: number }> {
+    const candidate = await loadCandidateState(admin, userId);
+    if (!candidate) return { persisted: 0, failed: 0 };
+
+    const [{ data: existingMatches }, { data: jobs }] = await Promise.all([
+        admin.from('job_matches').select('job_id').eq('user_id', userId),
+        admin
+            .from('jobs')
+            .select(`
+                *,
+                job_locations (city, state, country, remote_region),
+                job_skills (skill_name, is_required)
+            `)
+            .eq('status', 'active')
+            .order('discovered_at', { ascending: false })
+            .limit(SCHEDULED_MATCH_SCAN_LIMIT),
+    ]);
+
+    const scored = new Set((existingMatches ?? []).map((m: { job_id: string }) => m.job_id));
+    const unscored = (jobs ?? [])
+        .filter((job: { id: string }) => !scored.has(job.id))
+        .slice(0, Math.max(0, limit));
+
+    let persisted = 0;
+    let failed = 0;
+
+    for (const job of unscored) {
+        const matchResult = DeterministicMatcher.match(candidate, job as JobWithLocationsAndSkills);
+
+        const { error } = await admin
+            .from('job_matches')
+            .upsert(buildMatchRow(userId, job.id, matchResult), { onConflict: 'user_id,job_id' });
+
+        if (error) {
+            failed++;
+            console.error(`[ScheduledDiscovery] match write failed for job ${job.id}: ${describeWriteError(error)}`);
+            continue;
+        }
+        persisted++;
+    }
+
+    if (persisted > 0 || failed > 0) {
+        console.log(`[ScheduledDiscovery] matching persisted=${persisted} failed=${failed} candidates=${unscored.length}`);
+    }
+
+    return { persisted, failed };
+}
+
+/**
+ * Record what the run consumed.
+ *
+ * Written immediately after discovery returns and BEFORE the matching pass, so
+ * a termination during matching cannot lose the accounting. Keyed on the search
+ * run id, so a retry of the same run cannot double-count.
+ */
+async function recordUsage(
+    admin: SupabaseClient,
+    userId: string,
+    runId: string,
+    creditsUsed: number,
+    pagesScraped: number,
+    unknownUsage: boolean
+): Promise<void> {
+    const now = new Date();
+    const billingMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    const { error } = await admin.from('firecrawl_usage_ledgers').upsert({
+        user_id: userId,
+        billing_month: billingMonth,
+        operation_type: 'background_discovery',
+        credits_consumed: creditsUsed,
+        pages_scraped: pagesScraped,
+        reference_id: runId,
+        reconciliation_status: unknownUsage ? 'provider_usage_unknown' : 'reconciled',
+        idempotency_key: `scheduled_discovery_run_${runId}`,
+    }, { onConflict: 'idempotency_key' });
+
+    if (error) {
+        // Non-fatal: the run itself succeeded and crawl_runs already record the
+        // pages. Losing the ledger row must not fail the invocation.
+        console.error(`[ScheduledDiscovery] usage ledger write failed: ${describeWriteError(error)}`);
+    }
+}
+
+/**
+ * Select and process at most ONE opted-in user.
+ *
+ * One user per invocation is deliberate: a single profile-targeted run already
+ * consumes the whole 55s discovery budget in its worst case, so processing a
+ * second user in the same invocation could not fit under Hobby's 60s ceiling.
+ * With several opted-in users, `last_daily_discovery_at ASC NULLS FIRST` makes
+ * coverage rotate across days rather than always serving the same account.
+ */
+export async function runScheduledDailyDiscovery(): Promise<ScheduledRunResult> {
+    const admin = createAdminClient();
+    const budget = new ExecutionBudget(SCHEDULED_INVOCATION_BUDGET_SECONDS);
+
+    const empty: ScheduledRunResult = {
+        eligibleUsers: 0, processedUserId: null, pagesScraped: 0, matchesPersisted: 0,
+        concurrencyAborted: false, timedOut: false, matchingSkipped: false,
+    };
+
+    const { data: eligible, error: eligibleErr } = await admin
+        .from('profiles')
+        .select('user_id, last_daily_discovery_at')
+        .eq('daily_discovery_enabled', true)
+        .order('last_daily_discovery_at', { ascending: true, nullsFirst: true })
+        .limit(1);
+
+    if (eligibleErr) {
+        console.error('[ScheduledDiscovery] eligibility query failed:', eligibleErr.message);
+        return { ...empty, reason: 'eligibility_query_failed' };
+    }
+
+    if (!eligible || eligible.length === 0) {
+        console.log('[ScheduledDiscovery] no users have opted in; nothing to do.');
+        return { ...empty, reason: 'no_eligible_users' };
+    }
+
+    const userId = eligible[0].user_id as string;
+    console.log('[ScheduledDiscovery] processing 1 eligible user (least recently run).');
+
+    // Unmodified Phase 3 entry point: every validated control comes with it.
+    const discovery = await runProfileTargetedDiscovery(userId);
+
+    if (discovery.concurrencyAborted) {
+        // Another cycle held the mutex. Do NOT stamp the rotation: this user has
+        // not had their turn, so they stay first in line for the next run.
+        console.warn('[ScheduledDiscovery] another discovery cycle is running; standing down.');
+        return {
+            ...empty, eligibleUsers: 1, concurrencyAborted: true, reason: 'concurrency_aborted',
+        };
+    }
+
+    await recordUsage(
+        admin, userId, discovery.runId,
+        discovery.creditsUsed, discovery.pagesScraped, discovery.unknownUsage
+    );
+
+    // Advance the rotation so a different opted-in user leads tomorrow.
+    const { error: stampError } = await admin
+        .from('profiles')
+        .update({ last_daily_discovery_at: new Date().toISOString() })
+        .eq('user_id', userId);
+
+    if (stampError) {
+        console.error('[ScheduledDiscovery] rotation stamp failed:', stampError.message);
+    }
+
+    // Matching is skipped rather than started when it cannot finish inside the
+    // budget. Unscored jobs are picked up by the next run, so nothing is lost.
+    let matchesPersisted = 0;
+    let matchingSkipped = false;
+
+    if (budget.canAfford(SCHEDULED_MATCH_RESERVATION_MS)) {
+        const matching = await matchUnscoredJobsForUser(admin, userId);
+        matchesPersisted = matching.persisted;
+    } else {
+        matchingSkipped = true;
+        console.warn(
+            `[ScheduledDiscovery] matching skipped after ${Math.round(budget.elapsedMs() / 1000)}s: ` +
+            'insufficient budget remaining; unscored jobs roll over to the next run.'
+        );
+    }
+
+    console.log(
+        `[ScheduledDiscovery] complete pages=${discovery.pagesScraped} ` +
+        `matches=${matchesPersisted} timedOut=${discovery.timedOut} ` +
+        `elapsed=${Math.round(budget.elapsedMs() / 1000)}s`
+    );
+
+    return {
+        eligibleUsers: 1,
+        processedUserId: userId,
+        pagesScraped: discovery.pagesScraped,
+        matchesPersisted,
+        concurrencyAborted: false,
+        timedOut: discovery.timedOut === true,
+        matchingSkipped,
+    };
+}

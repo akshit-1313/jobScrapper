@@ -2,7 +2,8 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { DeterministicMatcher, CandidateState, MatchResult } from '@/lib/matching/matching-engine';
+import { DeterministicMatcher, CandidateState } from '@/lib/matching/matching-engine';
+import { buildMatchRow, describeWriteError } from '@/lib/matching/match-row';
 import { revalidatePath } from 'next/cache';
 import { JobWithLocationsAndSkills } from '@/lib/types/jobs';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -23,35 +24,11 @@ import { SupabaseClient } from '@supabase/supabase-js';
  * The RLS policies are unchanged — the ownership boundary is enforced in code
  * instead: user_id always comes from the verified session, never from an
  * argument or any other caller-controlled value.
+ *
+ * buildMatchRow/describeWriteError live in @/lib/matching/match-row so the
+ * scheduled path writes an identical row; a 'use server' module cannot export
+ * non-async helpers.
  */
-function buildMatchRow(userId: string, jobId: string, matchResult: MatchResult) {
-    return {
-        user_id: userId,
-        job_id: jobId,
-        overall_score: matchResult.overall_score,
-        skills_score: matchResult.skills_score,
-        experience_score: matchResult.experience_score,
-        role_score: matchResult.role_score,
-        location_score: matchResult.location_score,
-        work_mode_score: matchResult.work_mode_score,
-        seniority_score: matchResult.seniority_score,
-        emp_type_score: matchResult.emp_type_score,
-        matching_skills: matchResult.matching_skills,
-        missing_required_skills: matchResult.missing_required_skills,
-        missing_preferred_skills: matchResult.missing_preferred_skills,
-        positive_reasons: matchResult.positive_reasons,
-        concerns: matchResult.concerns,
-        recommendation: matchResult.recommendation,
-        scored_at: new Date().toISOString()
-    };
-}
-
-/** Failure detail worth logging. Never includes payloads, tokens or keys. */
-function describeWriteError(error: { message?: string; code?: string } | null): string {
-    if (!error) return 'no row returned';
-    return error.code ? `${error.message} (code ${error.code})` : `${error.message}`;
-}
-
 async function getCandidateState(supabase: SupabaseClient, userId: string): Promise<CandidateState | null> {
     const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', userId).single();
 

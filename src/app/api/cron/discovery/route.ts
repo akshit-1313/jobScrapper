@@ -1,27 +1,28 @@
 import { NextResponse } from "next/server";
 import { executeBackgroundDiscovery } from "@/lib/m8/background-discovery";
+import { authorizeCronRequest } from "@/lib/cron/authorize";
 
 /**
  * M8 Phase B - Background Discovery Orchestrator Entrypoint
- * This endpoint is explicitly triggered by pg_cron (or equivalent trusted external cron services).
- * It unconditionally requires a valid Bearer token matching CRON_SECRET.
- * It immediately hands off execution strictly to `executeBackgroundDiscovery()`.
+ *
+ * NOT SCHEDULED. M8 remains deferred (see the README section "M8 Background
+ * Discovery - DISABLED / FUTURE WORK"): its discover() path is incompatible
+ * with the installed Firecrawl SDK response shape, it applies no source cap,
+ * URL cap, extraction reservation or rate gate, and it has no eligible users.
+ * The daily cron is registered against /api/cron/daily-discovery instead, which
+ * runs the validated Phase 3 flow.
+ *
+ * This route is kept reachable for manual, explicitly-authorised invocation.
+ * GET is added so that IF M8 is ever scheduled the method matches how Vercel
+ * Cron invokes a path; POST is retained because existing tests and callers use
+ * it. Both share one handler, and authorisation always completes before any
+ * database or Firecrawl work.
  */
-export async function POST(request: Request) {
+async function handle(request: Request) {
     try {
-        const authHeader = request.headers.get("authorization");
-
-        // Strictly use server-side environment configurations.
-        const expectedSecret = process.env.CRON_SECRET;
-
-        // Fail-closed initialization check
-        if (!expectedSecret) {
-            console.error("[CRON_AUTH_ERROR] System CRON_SECRET is not configured.");
-            return NextResponse.json({ error: "System Configuration Error" }, { status: 500 });
-        }
-
-        if (authHeader !== `Bearer ${expectedSecret}`) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const auth = authorizeCronRequest(request.headers.get("authorization"));
+        if (!auth.authorized) {
+            return NextResponse.json({ error: auth.error }, { status: auth.status });
         }
 
         // Trigger orchestration cycle identically isolated.
@@ -36,4 +37,12 @@ export async function POST(request: Request) {
             { status: 500 }
         );
     }
+}
+
+export async function GET(request: Request) {
+    return handle(request);
+}
+
+export async function POST(request: Request) {
+    return handle(request);
 }

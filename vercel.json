@@ -5,6 +5,9 @@
     "PROFILE_EXTRACTION_RESERVATION_SECONDS": "45"
   },
   "functions": {
+    "src/app/api/cron/daily-discovery/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/cron/discovery/route.ts": {
       "maxDuration": 60
     },
