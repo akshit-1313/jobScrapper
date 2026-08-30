@@ -46,6 +46,28 @@ export const SCHEDULED_MATCH_LIMIT = 10;
 /** Candidate jobs considered when looking for unscored ones. */
 const SCHEDULED_MATCH_SCAN_LIMIT = 50;
 
+/**
+ * What a scheduled run may actually plan.
+ *
+ * The manual path plans 3 strategies × 3 sources = 9 searches. A scheduled run
+ * cannot execute that: the search gate requires room for the 6s spacing AND the
+ * full 45s extraction reservation, so under the 55s budget a search may only
+ * start while elapsed <= 4s. That admits two searches, and the run then reports
+ * `timeout` having abandoned seven planned calls — every single day.
+ *
+ * Planning 1 source × 2 strategies makes the schedule honest: it plans what it
+ * can finish, so `timeout` goes back to meaning something went wrong rather
+ * than being the normal outcome. Nothing is lost, because a daily job gets
+ * breadth from rotation across days rather than from depth in one invocation —
+ * and with the rotation fix, an unsearched source now keeps its turn.
+ *
+ * These use the EXISTING ProfileTargetedOptions. There is no second discovery
+ * engine, no second query builder and no second source-selection path: the
+ * scheduled run is the manual run with a smaller plan.
+ */
+export const SCHEDULED_MAX_SOURCES_PER_RUN = 1;
+export const SCHEDULED_MAX_QUERIES_PER_RUN = 2;
+
 export interface ScheduledRunResult {
     /** How many users are opted in right now. */
     eligibleUsers: number;
@@ -185,7 +207,14 @@ export async function runScheduledDailyDiscovery(): Promise<ScheduledRunResult> 
     console.log('[ScheduledDiscovery] processing 1 eligible user (least recently run).');
 
     // Unmodified Phase 3 entry point: every validated control comes with it.
-    const discovery = await runProfileTargetedDiscovery(userId);
+    // The only difference from the manual run is a smaller plan, expressed
+    // through the options the engine already exposes — same Search Parameters,
+    // same job-source selection, same query builder, same rate gate, spacing,
+    // rotation, URL cap, extraction reservation, dedup and allow-list.
+    const discovery = await runProfileTargetedDiscovery(userId, {
+        maxSourcesPerRun: SCHEDULED_MAX_SOURCES_PER_RUN,
+        maxQueries: SCHEDULED_MAX_QUERIES_PER_RUN,
+    });
 
     if (discovery.concurrencyAborted) {
         // Another cycle held the mutex. Do NOT stamp the rotation: this user has

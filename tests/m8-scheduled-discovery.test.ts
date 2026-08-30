@@ -17,11 +17,25 @@
 
 jest.mock('server-only', () => ({}), { virtual: true });
 jest.mock('@/lib/supabase/admin', () => ({ createAdminClient: jest.fn() }));
-jest.mock('@/lib/jobs/discovery-service', () => ({ runProfileTargetedDiscovery: jest.fn() }));
+// Only the entry point is stubbed. The real constants are kept so the
+// narrowing assertions below compare against the actual manual defaults rather
+// than numbers duplicated into this file.
+jest.mock('@/lib/jobs/discovery-service', () => ({
+    ...jest.requireActual('@/lib/jobs/discovery-service'),
+    runProfileTargetedDiscovery: jest.fn(),
+}));
 
 import { createAdminClient } from '@/lib/supabase/admin';
-import { runProfileTargetedDiscovery } from '@/lib/jobs/discovery-service';
-import { runScheduledDailyDiscovery } from '@/lib/jobs/scheduled-discovery';
+import {
+    runProfileTargetedDiscovery,
+    PROFILE_SEARCH_DEFAULT_MAX_SOURCES_PER_RUN,
+    PROFILE_SEARCH_DEFAULT_MAX_QUERIES,
+} from '@/lib/jobs/discovery-service';
+import {
+    runScheduledDailyDiscovery,
+    SCHEDULED_MAX_SOURCES_PER_RUN,
+    SCHEDULED_MAX_QUERIES_PER_RUN,
+} from '@/lib/jobs/scheduled-discovery';
 import { authorizeCronRequest } from '@/lib/cron/authorize';
 import { GET, POST } from '@/app/api/cron/daily-discovery/route';
 
@@ -134,7 +148,10 @@ describe('Scheduled daily discovery', () => {
             const res = await GET(request('GET', `Bearer ${SECRET}`));
 
             expect(res.status).toBe(200);
-            expect(runProfileTargetedDiscovery).toHaveBeenCalledWith(USER_A);
+            expect(runProfileTargetedDiscovery).toHaveBeenCalledWith(USER_A, {
+                maxSourcesPerRun: SCHEDULED_MAX_SOURCES_PER_RUN,
+                maxQueries: SCHEDULED_MAX_QUERIES_PER_RUN,
+            });
         });
 
         it('POST remains available and behaves identically', async () => {
@@ -321,10 +338,23 @@ describe('Scheduled daily discovery', () => {
 
             await runScheduledDailyDiscovery();
 
-            // Called with only a user id: no override widens the source, URL or
-            // time budgets that Phase 3 enforces internally.
-            expect(runProfileTargetedDiscovery).toHaveBeenCalledWith(USER_A);
-            expect((runProfileTargetedDiscovery as jest.Mock).mock.calls[0]).toHaveLength(1);
+            // The scheduled run passes options, but they may only NARROW what
+            // Phase 3 enforces internally. Widening any budget here would move
+            // a validated control into the caller, which is what this guards.
+            const [calledUser, options] = (runProfileTargetedDiscovery as jest.Mock).mock.calls[0];
+            expect(calledUser).toBe(USER_A);
+
+            expect(options.maxSourcesPerRun).toBe(SCHEDULED_MAX_SOURCES_PER_RUN);
+            expect(options.maxQueries).toBe(SCHEDULED_MAX_QUERIES_PER_RUN);
+            expect(options.maxSourcesPerRun).toBeLessThan(PROFILE_SEARCH_DEFAULT_MAX_SOURCES_PER_RUN);
+            expect(options.maxQueries).toBeLessThan(PROFILE_SEARCH_DEFAULT_MAX_QUERIES);
+
+            // Nothing that could relax a safety control is passed at all.
+            expect(options).not.toHaveProperty('timeoutSeconds');
+            expect(options).not.toHaveProperty('maxUrlsPerRun');
+            expect(options).not.toHaveProperty('resultsPerQuery');
+            expect(options).not.toHaveProperty('sourceHostAllowList');
+            expect(Object.keys(options).sort()).toEqual(['maxQueries', 'maxSourcesPerRun']);
         });
 
         it('reports a discovery timeout without treating it as a failure', async () => {
