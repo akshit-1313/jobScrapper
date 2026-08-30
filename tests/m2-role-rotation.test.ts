@@ -51,9 +51,9 @@ function simulate(roles: string[], k: number, runs: number): string[][] {
     let offset = 0;
     const out: string[][] = [];
     for (let i = 0; i < runs; i++) {
-        const { titles, rolesConsumed } = selectTitles(input(roles), k, offset);
+        const { titles } = selectTitles(input(roles), k, offset);
         out.push(titles);
-        offset = advanceRotationOffset(offset, rolesConsumed, roles.length);
+        offset = advanceRotationOffset(offset, k, roles.length);
     }
     return out;
 }

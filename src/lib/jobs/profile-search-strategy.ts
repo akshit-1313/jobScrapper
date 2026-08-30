@@ -297,6 +297,251 @@ export function rankSkills(
     return { core, secondary, domains }
 }
 
+// ── Resume-driven role derivation ───────────────────────────────────────────
+//
+// Explicit Target Roles say what the user asked for. This section adds what
+// their resume implies, so a run can also reach adjacent jobs the user never
+// thought to type — without inventing anything, and without spending another
+// search call.
+//
+// Everything is derived from data the user actually has. Nothing here knows
+// what a Salesforce, a Java or a nursing job is: it composes a qualifier the
+// profile repeats with a role noun the profile already uses.
+
+/** A single candidate search intent, before the run picks which few to use. */
+export interface SearchIntent {
+    /** The job title this intent targets. */
+    title: string
+    /** Where it came from. Explicit always outranks derived. */
+    kind: 'explicit' | 'profile' | 'derived' | 'synonym'
+    /** Ranking score within its kind. Higher is stronger evidence. */
+    score: number
+    /** The profile token that produced a derived title, for cluster affinity. */
+    qualifier?: string
+    /** Human-readable justification, surfaced by the diagnostic helper. */
+    reason: string
+}
+
+/**
+ * How often a qualifier must recur before it is allowed to form a job title.
+ *
+ * One mention is an anecdote — a tool used once should not become a role. Two
+ * independent engagements, or an explicitly primary skill, is evidence.
+ */
+export const QUALIFIER_MIN_FREQUENCY = 2
+
+/** Words that describe a role, never a technology, so never a qualifier. */
+const ROLE_NOUN_TOKENS = new Set(ROLE_SYNONYMS.flat())
+
+/**
+ * Tokens that carry no search meaning on their own.
+ *
+ * Deliberately tiny and profession-neutral: these are English filler and
+ * generic activity words, not a domain vocabulary. A real technology or domain
+ * term must never appear here.
+ */
+const NON_QUALIFIER_TOKENS = new Set([
+    'and', 'or', 'the', 'a', 'an', 'of', 'for', 'with', 'to', 'in', 'on',
+    'other', 'various', 'general', 'misc', 'etc',
+    'debugging', 'documentation', 'testing', 'support', 'maintenance',
+])
+
+/**
+ * Qualifiers the profile actually repeats: platforms, domains, technologies.
+ *
+ * Scored from two independent kinds of evidence — how many engagements mention
+ * it, and whether the user marked it primary — so a term earns its place by
+ * recurring, not by appearing once in a long list.
+ */
+export function extractQualifiers(
+    skills: StrategySkill[],
+    engagements: StrategyEngagement[]
+): Array<{ term: string; score: number; frequency: number; primary: boolean }> {
+    const frequency = new Map<string, number>()
+    const bump = (raw: string | null | undefined) => {
+        const t = normalizeTitle(raw ?? '')
+        if (!t) return
+        frequency.set(t, (frequency.get(t) ?? 0) + 1)
+    }
+
+    // Engagement technologies and domains are the recurrence signal: the same
+    // term appearing across separate pieces of work is what makes it central.
+    for (const e of engagements) {
+        for (const t of e.technologies ?? []) bump(t)
+        for (const d of e.domains ?? []) bump(d)
+    }
+
+    const primary = new Set(
+        skills.filter(s => s.is_primary).map(s => normalizeTitle(s.skill_name)).filter(Boolean)
+    )
+
+    const candidates = new Set<string>([...frequency.keys(), ...primary])
+    const out: Array<{ term: string; score: number; frequency: number; primary: boolean }> = []
+
+    for (const term of candidates) {
+        if (!term || term.length < 2) continue
+        if (NON_QUALIFIER_TOKENS.has(term)) continue
+        // A role noun is a role, not a thing the role works on.
+        if (ROLE_NOUN_TOKENS.has(term)) continue
+        if (SENIORITY_TOKENS.has(term)) continue
+        // Long phrases make unnatural titles; a qualifier is a word or two.
+        if (term.split(' ').length > 2) continue
+
+        const freq = frequency.get(term) ?? 0
+        const isPrimary = primary.has(term)
+        if (freq < QUALIFIER_MIN_FREQUENCY && !isPrimary) continue
+
+        out.push({ term, score: freq * 3 + (isPrimary ? 2 : 0), frequency: freq, primary: isPrimary })
+    }
+
+    // Deterministic: score first, then alphabetical so ties never reorder.
+    out.sort((a, b) => b.score - a.score || a.term.localeCompare(b.term))
+    return out
+}
+
+/**
+ * The role noun the profile already uses ("developer", "manager", "nurse").
+ *
+ * Read from the user's own titles rather than assumed, so a career change
+ * carries the noun with it. Falls back to the last word of the first title,
+ * which is the role noun in most job titles across professions.
+ */
+export function deriveRoleNoun(titles: string[]): string | null {
+    for (const title of titles) {
+        const tokens = normalizeTitle(title).split(' ').filter(Boolean)
+        const noun = tokens.find(t => ROLE_NOUN_TOKENS.has(t))
+        if (noun) return noun
+    }
+    for (const title of titles) {
+        const tokens = normalizeTitle(title).split(' ').filter(t => t && !SENIORITY_TOKENS.has(t))
+        if (tokens.length > 0) return tokens[tokens.length - 1]
+    }
+    return null
+}
+
+/**
+ * The full set of search intents this profile supports, best evidence first.
+ *
+ * Read-only and side-effect free. A run consumes only the first few, but the
+ * whole portfolio is returned so it can be inspected when a search finds
+ * little — see explainPortfolio.
+ */
+export function buildSearchPortfolio(
+    input: StrategyInput,
+    rotationOffset = 0
+): SearchIntent[] {
+    const excluded = new Set((input.preferences?.excluded_roles ?? []).map(normalizeTitle).filter(Boolean))
+    const allowed = (t: string): boolean => {
+        if (!t) return false
+        if (excluded.has(t)) return false
+        if (excluded.size && [...excluded].some(ex => t.includes(ex))) return false
+        return true
+    }
+
+    const intents: SearchIntent[] = []
+    const seen = new Set<string>()
+    const add = (i: SearchIntent) => {
+        if (!allowed(i.title) || seen.has(i.title)) return
+        seen.add(i.title)
+        intents.push(i)
+    }
+
+    // 1. Explicit intent, in the user's own order.
+    const explicit: string[] = []
+    for (const r of input.preferences?.desired_roles ?? []) {
+        const n = normalizeTitle(r ?? '')
+        if (n && !explicit.includes(n)) explicit.push(n)
+    }
+    explicit.forEach((title, i) =>
+        add({ title, kind: 'explicit', score: 1000 - i, reason: 'listed in Target Roles' })
+    )
+
+    // 2. Profile intent: what the user currently is.
+    const profileTitles: string[] = []
+    const pushProfile = (raw: string | null | undefined, why: string) => {
+        const n = normalizeTitle(raw ?? '')
+        if (!n) return
+        profileTitles.push(n)
+        add({ title: n, kind: 'profile', score: 500, reason: why })
+    }
+    pushProfile(input.profile?.headline, 'profile headline')
+    for (const e of input.experience.filter(x => x.is_current)) pushProfile(e.title, 'current experience')
+    for (const e of input.experience.filter(x => !x.is_current)) pushProfile(e.title, 'past experience')
+
+    // 3. Derived intent: a qualifier the resume repeats + a role noun it uses.
+    const roleNoun = deriveRoleNoun([...explicit, ...profileTitles])
+    const qualifiers = extractQualifiers(input.skills, input.engagements)
+
+    if (roleNoun) {
+        // Rotated by the same offset as the explicit roles, so successive runs
+        // reach different derived intents instead of always the strongest one.
+        const ordered = qualifiers.length > 0
+            ? qualifiers.map((_, i) => qualifiers[(normaliseRotationOffset(rotationOffset, qualifiers.length) + i) % qualifiers.length])
+            : []
+
+        for (const q of ordered) {
+            add({
+                title: `${q.term} ${roleNoun}`,
+                kind: 'derived',
+                score: q.score,
+                qualifier: q.term,
+                reason: q.primary && q.frequency >= QUALIFIER_MIN_FREQUENCY
+                    ? `"${q.term}" is a primary skill and appears in ${q.frequency} engagements`
+                    : q.primary
+                        ? `"${q.term}" is a primary skill`
+                        : `"${q.term}" appears in ${q.frequency} engagements`,
+            })
+        }
+    }
+
+    // 4. Vocabulary synonyms, breadth-first so one seed cannot monopolise.
+    const seeds = [...explicit, ...profileTitles]
+    const expansions = seeds.map(s => deriveAlternativeTitles(s).filter(allowed))
+    const deepest = expansions.reduce((m, e) => Math.max(m, e.length), 0)
+    for (let rank = 1; rank < deepest; rank++) {
+        for (const expansion of expansions) {
+            const t = expansion[rank]
+            if (t) add({ title: t, kind: 'synonym', score: 100 - rank, reason: 'related title from role vocabulary' })
+        }
+    }
+
+    return intents
+}
+
+/**
+ * Why a run searched what it searched.
+ *
+ * Server-side diagnostic for the question "why did this find so few jobs?".
+ * Returns plain data; nothing here is shown to the user.
+ */
+export function explainPortfolio(
+    input: StrategyInput,
+    options: StrategyOptions = {}
+): {
+    selected: SearchIntent[]
+    skipped: SearchIntent[]
+    qualifiers: Array<{ term: string; score: number; frequency: number; primary: boolean }>
+    roleNoun: string | null
+    remoteTerms: string[]
+    geoTerms: string[]
+} {
+    const maxQueries = Math.max(1, options.maxQueries ?? DEFAULT_MAX_QUERIES)
+    const offset = options.rotationOffset ?? 0
+    const portfolio = buildSearchPortfolio(input, offset)
+    const { titles } = selectTitles(input, maxQueries, offset)
+    const chosen = new Set(titles)
+
+    return {
+        selected: titles
+            .map(t => portfolio.find(i => i.title === t) ?? { title: t, kind: 'synonym' as const, score: 0, reason: 'generic alternative' }),
+        skipped: portfolio.filter(i => !chosen.has(i.title)),
+        qualifiers: extractQualifiers(input.skills, input.engagements),
+        roleNoun: deriveRoleNoun(portfolio.filter(i => i.kind === 'explicit' || i.kind === 'profile').map(i => i.title)),
+        remoteTerms: resolveRemoteTerms(input.preferences?.work_modes, input.preferences?.remote_search_terms),
+        geoTerms: resolveGeoTerms(input.preferences?.geographic_preferences),
+    }
+}
+
 // ── Search intent: work mode and geography ──────────────────────────────────
 //
 // These come from the user's saved Search Parameters (candidate_preferences),
@@ -441,7 +686,13 @@ export function selectTitles(
     input: StrategyInput,
     maxQueries: number,
     rotationOffset: number
-): { titles: string[]; rolesConsumed: number; explicitCount: number } {
+): {
+    titles: string[]
+    rolesConsumed: number
+    explicitCount: number
+    /** Derived titles map to the profile token that produced them. */
+    qualifierByTitle: Map<string, string>
+} {
     const excluded = new Set((input.preferences?.excluded_roles ?? []).map(normalizeTitle).filter(Boolean))
 
     const allowed = (t: string): boolean => {
@@ -479,29 +730,58 @@ export function selectTitles(
     }
 
     // ── Fill any remaining slots ──
-    // Seeds for expansion: the roles chosen this run lead, then the explicit
-    // roles waiting their turn, then profile-derived titles. Alternatives are
-    // read rank by rank so breadth wins over depth.
-    if (selected.length < maxQueries) {
-        const seeds = [
-            ...selected,
-            ...explicit.filter(t => !selected.includes(t)),
-            ...inferred,
-        ]
+    //
+    // Order follows the evidence, strongest first:
+    //   profile titles  — what the user currently is
+    //   derived titles  — a qualifier the resume repeats + the role noun it uses
+    //   synonyms        — generic vocabulary, weakest evidence
+    //
+    // Derived intents sit ahead of synonyms because "integration developer",
+    // built from a domain appearing across several engagements, is better
+    // grounded than a dictionary swap of a word in an existing title.
+    const qualifierByTitle = new Map<string, string>()
 
+    if (selected.length < maxQueries) {
+        const fillers: string[] = []
+
+        for (const t of inferred) fillers.push(t)
+
+        for (const intent of buildSearchPortfolio(input, rotationOffset)) {
+            if (intent.kind !== 'derived') continue
+            fillers.push(intent.title)
+            if (intent.qualifier) qualifierByTitle.set(intent.title, intent.qualifier)
+        }
+
+        // Synonyms last, breadth-first so one seed cannot take every slot.
+        const seeds = [...selected, ...explicit.filter(t => !selected.includes(t)), ...inferred]
         const expansions = seeds.map(s => deriveAlternativeTitles(s).filter(allowed))
         const deepest = expansions.reduce((m, e) => Math.max(m, e.length), 0)
-
-        for (let rank = 0; rank < deepest && selected.length < maxQueries; rank++) {
+        for (let rank = 0; rank < deepest; rank++) {
             for (const expansion of expansions) {
-                if (selected.length >= maxQueries) break
                 const candidate = expansion[rank]
-                if (candidate && !selected.includes(candidate)) selected.push(candidate)
+                if (candidate) fillers.push(candidate)
             }
+        }
+
+        // Rotate the fillers too, by the same offset.
+        //
+        // Ranking decides which candidates are best; rotation decides which of
+        // them THIS run gets. Without this the leftover slots are a fixed
+        // prefix, so with (say) two explicit roles and one profile title the
+        // third slot is that title on every run and the derived intents — often
+        // the strongest evidence in the resume — are never actually searched.
+        const ordered = fillers.length > 0
+            ? fillers.map((_, i) => fillers[(normaliseRotationOffset(rotationOffset, fillers.length) + i) % fillers.length])
+            : []
+
+        for (const candidate of ordered) {
+            if (selected.length >= maxQueries) break
+            if (!allowed(candidate) || selected.includes(candidate)) continue
+            selected.push(candidate)
         }
     }
 
-    return { titles: selected, rolesConsumed: windowSize, explicitCount: N }
+    return { titles: selected, rolesConsumed: windowSize, explicitCount: N, qualifierByTitle }
 }
 
 export function buildSearchStrategies(
@@ -511,7 +791,7 @@ export function buildSearchStrategies(
     const maxQueries = Math.max(1, options.maxQueries ?? DEFAULT_MAX_QUERIES)
     const skillsPerQuery = Math.max(1, options.skillsPerQuery ?? DEFAULT_SKILLS_PER_QUERY)
 
-    const { titles } = selectTitles(input, maxQueries, options.rotationOffset ?? 0)
+    const { titles, qualifierByTitle } = selectTitles(input, maxQueries, options.rotationOffset ?? 0)
 
     if (titles.length === 0) return []
 
@@ -544,8 +824,21 @@ export function buildSearchStrategies(
         // Take the next distinct cluster, wrapping only if the pool is short.
         let cluster: string[] = []
         if (pool.length > 0) {
-            for (let i = 0; i < skillsPerQuery && i < pool.length; i++) {
-                cluster.push(pool[(skillCursor + i) % pool.length])
+            // A derived title names a specific qualifier, so lead its cluster
+            // with the skills that actually relate to it — an integration role
+            // paired with integration skills reads as one coherent query rather
+            // than a title bolted onto whatever the cursor happened to reach.
+            const qualifier = qualifierByTitle.get(title)
+            if (qualifier) {
+                for (const skill of pool) {
+                    if (cluster.length >= skillsPerQuery) break
+                    if (normalizeTitle(skill).includes(qualifier)) cluster.push(skill)
+                }
+            }
+
+            for (let i = 0; cluster.length < skillsPerQuery && i < pool.length; i++) {
+                const next = pool[(skillCursor + i) % pool.length]
+                if (!cluster.includes(next)) cluster.push(next)
             }
             skillCursor = (skillCursor + skillsPerQuery) % pool.length
         }

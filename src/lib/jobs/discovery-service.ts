@@ -527,7 +527,13 @@ export async function advanceRoleRotation(
         // the pointer is meaningless, so leave it alone.
         if (roles.length === 0) return;
 
-        const consumed = Math.min(roles.length, Math.max(1, maxQueries));
+        // Advance by the run's query count, not by the number of roles it
+        // happened to consume. When there are fewer roles than slots those are
+        // equal in effect for the explicit window, but stepping by the slot
+        // count also moves the pointer that orders the derived intents — so a
+        // profile with two roles still reaches different resume-derived
+        // searches on successive runs instead of repeating one set forever.
+        const consumed = Math.max(1, maxQueries);
         const next = advanceRotationOffset(
             (data?.role_rotation_offset as number | null) ?? 0,
             consumed,
