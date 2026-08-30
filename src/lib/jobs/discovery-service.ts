@@ -5,7 +5,8 @@ import { createSearchRun, completeSearchRunWithStats, createCrawlRun, markCrawlR
 import { SourceAdapterRegistry } from './adapters/source-adapter-registry';
 import { JobNormalizer } from './job-normalizer';
 import { DiscoveredURL } from './adapters/types';
-import { buildSearchStrategies, SearchStrategy, resolveUrlBudget } from './profile-search-strategy';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { buildSearchStrategies, SearchStrategy, resolveUrlBudget, advanceRotationOffset } from './profile-search-strategy';
 import {
     acquireDiscoveryLock,
     releaseDiscoveryLock,
@@ -478,7 +479,7 @@ export async function buildStrategiesForUser(
         adminClient.from('candidate_experience').select('title, is_current').eq('user_id', userId),
         adminClient.from('candidate_engagements').select('technologies, domains').eq('user_id', userId),
         adminClient.from('candidate_preferences').select(
-            'desired_roles, excluded_roles, geographic_preferences, work_modes, remote_search_terms, desired_skills, excluded_skills'
+            'desired_roles, excluded_roles, geographic_preferences, work_modes, remote_search_terms, desired_skills, excluded_skills, role_rotation_offset'
         ).eq('user_id', userId).maybeSingle(),
     ]);
 
@@ -490,8 +491,60 @@ export async function buildStrategiesForUser(
             engagements: engRes.data ?? [],
             preferences: prefsRes.data ?? null,
         },
-        { maxQueries: options.maxQueries ?? PROFILE_SEARCH_DEFAULT_MAX_QUERIES }
+        {
+            maxQueries: options.maxQueries ?? PROFILE_SEARCH_DEFAULT_MAX_QUERIES,
+            rotationOffset: (prefsRes.data?.role_rotation_offset as number | null) ?? 0,
+        }
     );
+}
+
+/**
+ * Move the role rotation on, so the next run starts after the roles this one
+ * searched.
+ *
+ * Advanced by the number of explicit roles the window actually consumed, which
+ * is what makes consecutive runs tile the list. Manual and scheduled share the
+ * pointer deliberately.
+ *
+ * Never throws and never blocks the run: the searches have already happened, so
+ * failing to move the pointer must not fail the invocation. The worst case is
+ * that the next run repeats these roles, which the following run then corrects.
+ */
+export async function advanceRoleRotation(
+    adminClient: SupabaseClient,
+    userId: string,
+    maxQueries: number
+): Promise<void> {
+    try {
+        const { data } = await adminClient
+            .from('candidate_preferences')
+            .select('desired_roles, role_rotation_offset')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        const roles = (data?.desired_roles as string[] | null) ?? [];
+        // Nothing explicit to rotate through: titles come from the profile and
+        // the pointer is meaningless, so leave it alone.
+        if (roles.length === 0) return;
+
+        const consumed = Math.min(roles.length, Math.max(1, maxQueries));
+        const next = advanceRotationOffset(
+            (data?.role_rotation_offset as number | null) ?? 0,
+            consumed,
+            roles.length
+        );
+
+        const { error } = await adminClient
+            .from('candidate_preferences')
+            .update({ role_rotation_offset: next })
+            .eq('user_id', userId);
+
+        if (error) {
+            console.error('[ProfileTargeted] role rotation advance failed:', error.message);
+        }
+    } catch (err) {
+        console.error('[ProfileTargeted] role rotation advance threw:', err);
+    }
 }
 
 /**
@@ -820,6 +873,15 @@ export async function runProfileTargetedDiscovery(
             `[ProfileTargeted] pre-extraction gate skipped ${prefetchSkipped} candidate(s) before any extraction spend`
         );
     }
+
+    // Move the role window on so the roles that had to wait lead the next run.
+    // Advanced whether or not the searches yielded anything: these roles have
+    // had their turn, and repeating them would starve the rest.
+    await advanceRoleRotation(
+        adminClient,
+        userId,
+        options.maxQueries ?? PROFILE_SEARCH_DEFAULT_MAX_QUERIES
+    );
 
         await releaseDiscoveryLock(
             adminClient,

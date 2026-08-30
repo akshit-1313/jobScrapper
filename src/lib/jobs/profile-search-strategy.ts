@@ -79,6 +79,20 @@ export interface StrategyOptions {
     maxQueries?: number
     /** Skills included per query. Too many over-constrains the search. */
     skillsPerQuery?: number
+    /**
+     * Where this run starts in the explicit role list.
+     *
+     * A run can only afford a few queries, so with more roles than slots some
+     * roles must wait. Advancing this between runs is what stops a role at the
+     * end of the list from waiting forever. Persisted by the caller in
+     * candidate_preferences.role_rotation_offset and shared by the manual and
+     * scheduled paths, so the two advance one pointer rather than each
+     * re-searching the same positions.
+     *
+     * Normalised internally: out-of-range, negative and non-integer values are
+     * all folded back into [0, N), so a shrinking role list needs no reset.
+     */
+    rotationOffset?: number
 }
 
 export const DEFAULT_MAX_QUERIES = 5
@@ -374,6 +388,122 @@ export function deriveExperienceLevel(years: number | null | undefined): string 
  * successive searches explore different facets of the candidate rather than
  * repeating one over-long query.
  */
+/**
+ * Fold any offset into [0, size).
+ *
+ * Handles the cases the stored value can actually take: a list that shrank
+ * since the offset was written, a negative value, a fractional value, or a
+ * missing one. Never throws, so a bad stored offset degrades to 0 rather than
+ * breaking discovery.
+ */
+export function normaliseRotationOffset(offset: number | null | undefined, size: number): number {
+    if (size <= 0) return 0
+    if (typeof offset !== 'number' || !Number.isFinite(offset)) return 0
+    const whole = Math.trunc(offset)
+    return ((whole % size) + size) % size
+}
+
+/**
+ * The next offset to store after a run consumed `consumed` roles from `size`.
+ *
+ * Advancing by exactly the window width means consecutive runs tile the list
+ * without overlap, so every role is reached within ceil(size / consumed) runs.
+ */
+export function advanceRotationOffset(offset: number, consumed: number, size: number): number {
+    if (size <= 0) return 0
+    const from = normaliseRotationOffset(offset, size)
+    const step = Math.max(0, Math.trunc(consumed))
+    return (from + step) % size
+}
+
+/**
+ * Order candidate titles so no explicit role can be starved by a synonym.
+ *
+ * The previous ordering flattened each seed's expansion depth-first, which put
+ * every alternative of the first seed ahead of the SECOND seed's own title. A
+ * three-slot run then spent all three on variations of one role, and later
+ * roles were never reached — deterministically, so they were starved forever
+ * rather than merely unlucky.
+ *
+ * Two rules fix that generically, with no vocabulary changes:
+ *
+ *   1. Explicit `desired_roles` are seeded before any inferred title, and a
+ *      rotating window selects which of them this run can afford. Roles outside
+ *      the window are not dropped — they lead the next run.
+ *   2. Alternatives are appended only AFTER every selected explicit role, and
+ *      are read breadth-first by rank (all first alternatives, then all second
+ *      alternatives, ...) so one seed cannot monopolise the remaining slots.
+ *
+ * With fewer roles than slots the leftovers are filled from those alternatives,
+ * so a single role still produces a full, varied run exactly as before.
+ */
+export function selectTitles(
+    input: StrategyInput,
+    maxQueries: number,
+    rotationOffset: number
+): { titles: string[]; rolesConsumed: number; explicitCount: number } {
+    const excluded = new Set((input.preferences?.excluded_roles ?? []).map(normalizeTitle).filter(Boolean))
+
+    const allowed = (t: string): boolean => {
+        if (!t) return false
+        if (excluded.has(t)) return false
+        if (excluded.size && [...excluded].some(ex => t.includes(ex))) return false
+        return true
+    }
+
+    // ── Explicit roles: deduplicated, order preserved ──
+    const explicit: string[] = []
+    for (const r of input.preferences?.desired_roles ?? []) {
+        const n = normalizeTitle(r ?? '')
+        if (allowed(n) && !explicit.includes(n)) explicit.push(n)
+    }
+
+    // ── Inferred seeds, used when there is no explicit list and to widen ──
+    const inferred: string[] = []
+    const pushInferred = (raw: string | null | undefined) => {
+        const n = normalizeTitle(raw ?? '')
+        if (allowed(n) && !explicit.includes(n) && !inferred.includes(n)) inferred.push(n)
+    }
+    pushInferred(input.profile?.headline)
+    for (const e of input.experience.filter(x => x.is_current)) pushInferred(e.title)
+    for (const e of input.experience.filter(x => !x.is_current)) pushInferred(e.title)
+
+    // ── Rotating window over the explicit roles ──
+    const N = explicit.length
+    const windowSize = Math.min(N, maxQueries)
+    const start = normaliseRotationOffset(rotationOffset, N)
+
+    const selected: string[] = []
+    for (let i = 0; i < windowSize; i++) {
+        selected.push(explicit[(start + i) % N])
+    }
+
+    // ── Fill any remaining slots ──
+    // Seeds for expansion: the roles chosen this run lead, then the explicit
+    // roles waiting their turn, then profile-derived titles. Alternatives are
+    // read rank by rank so breadth wins over depth.
+    if (selected.length < maxQueries) {
+        const seeds = [
+            ...selected,
+            ...explicit.filter(t => !selected.includes(t)),
+            ...inferred,
+        ]
+
+        const expansions = seeds.map(s => deriveAlternativeTitles(s).filter(allowed))
+        const deepest = expansions.reduce((m, e) => Math.max(m, e.length), 0)
+
+        for (let rank = 0; rank < deepest && selected.length < maxQueries; rank++) {
+            for (const expansion of expansions) {
+                if (selected.length >= maxQueries) break
+                const candidate = expansion[rank]
+                if (candidate && !selected.includes(candidate)) selected.push(candidate)
+            }
+        }
+    }
+
+    return { titles: selected, rolesConsumed: windowSize, explicitCount: N }
+}
+
 export function buildSearchStrategies(
     input: StrategyInput,
     options: StrategyOptions = {}
@@ -381,25 +511,7 @@ export function buildSearchStrategies(
     const maxQueries = Math.max(1, options.maxQueries ?? DEFAULT_MAX_QUERIES)
     const skillsPerQuery = Math.max(1, options.skillsPerQuery ?? DEFAULT_SKILLS_PER_QUERY)
 
-    // ── Titles ──
-    const rawTitles: string[] = []
-    if (input.profile?.headline) rawTitles.push(input.profile.headline)
-    for (const r of input.preferences?.desired_roles ?? []) rawTitles.push(r)
-    // Current roles first, then the rest.
-    for (const e of input.experience.filter(x => x.is_current)) rawTitles.push(e.title)
-    for (const e of input.experience.filter(x => !x.is_current)) rawTitles.push(e.title)
-
-    const excluded = new Set((input.preferences?.excluded_roles ?? []).map(normalizeTitle).filter(Boolean))
-
-    const titles: string[] = []
-    for (const raw of rawTitles) {
-        for (const t of deriveAlternativeTitles(raw)) {
-            if (!t) continue
-            if (excluded.has(t)) continue
-            if (excluded.size && [...excluded].some(ex => t.includes(ex))) continue
-            if (!titles.includes(t)) titles.push(t)
-        }
-    }
+    const { titles } = selectTitles(input, maxQueries, options.rotationOffset ?? 0)
 
     if (titles.length === 0) return []
 
