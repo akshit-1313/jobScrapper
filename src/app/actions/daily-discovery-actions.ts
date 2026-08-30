@@ -38,6 +38,9 @@ export async function setDailyDiscoveryEnabled(enabled: boolean) {
             return { success: false, error: 'Could not update your daily search setting.' }
         }
 
+        // /search-discovery is where the toggle now lives; /settings still links
+        // to it and is kept so nothing that already depended on it regresses.
+        revalidatePath('/search-discovery')
         revalidatePath('/settings')
         return { success: true, enabled }
 

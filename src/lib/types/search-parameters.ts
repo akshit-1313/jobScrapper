@@ -19,6 +19,26 @@ export type WorkModeOption = typeof WORK_MODE_OPTIONS[number];
 /** Geographic values meaning "no restriction". */
 export const WORLDWIDE_OPTION = 'worldwide';
 
+/**
+ * Canonical 8-4-4-4-12 UUID shape.
+ *
+ * Deliberately NOT `z.string().uuid()`. That enforces the RFC 4122 version and
+ * variant nibbles — `[1-8]` opening the third group, `[89abAB]` the fourth —
+ * which the seeded job_sources ids do not carry:
+ *
+ *     a0000000-0000-0000-0000-000000000005   ← Lever, version nibble 0
+ *
+ * Postgres stores and compares these perfectly well; only Zod refused them, so
+ * every "Choose sources" save failed validation before reaching the database
+ * while "All sources" (an empty array) always passed.
+ *
+ * Loosening the FORMAT check costs nothing in safety: the format was never the
+ * security boundary. `resolveEligibleSources` intersects these ids with sources
+ * already filtered to `active = true`, so an unknown or fabricated id still
+ * matches nothing, and the uuid[] column rejects anything malformed.
+ */
+const UUID_SHAPE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 const termList = z
     .array(z.string().trim().min(1).max(120))
     .max(25)
@@ -39,7 +59,7 @@ export const SearchParametersSchema = z.object({
      * intersected with job_sources.active = true at query time, so this can
      * only ever narrow the pool — never widen it past the allow-list.
      */
-    selected_source_ids: z.array(z.string().uuid()).max(50).optional().default([]),
+    selected_source_ids: z.array(z.string().regex(UUID_SHAPE)).max(50).optional().default([]),
 });
 
 export type SearchParametersValues = z.infer<typeof SearchParametersSchema>;

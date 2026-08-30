@@ -24,6 +24,9 @@ export async function refreshFirecrawlUsage() {
 
         const snapshot = await refreshUsageSnapshot()
 
+        // /search-discovery hosts the usage panel; the other two are retained so
+        // any surface still reading the snapshot picks up the refreshed value.
+        revalidatePath('/search-discovery')
         revalidatePath('/profile')
         revalidatePath('/settings')
 

@@ -446,6 +446,70 @@ describe('Navigation', () => {
     });
 });
 
+/**
+ * Every action whose panel moved to the dashboard must revalidate it.
+ *
+ * The move left three actions revalidating pages that no longer host their
+ * panel, and none revalidating the page the user is actually looking at — so a
+ * successful write could leave a stale dashboard behind it. The old paths are
+ * kept: they still read the same rows.
+ */
+describe('Writes revalidate the dashboard they came from', () => {
+    const ACTIONS = join(SRC, 'app', 'actions');
+
+    const REVALIDATION: Array<{ file: string; action: string; preserved: string[] }> = [
+        { file: 'search-parameters-actions.ts', action: 'saveSearchParameters', preserved: ['/profile', '/preferences'] },
+        { file: 'daily-discovery-actions.ts', action: 'setDailyDiscoveryEnabled', preserved: ['/settings'] },
+        { file: 'usage-actions.ts', action: 'refreshFirecrawlUsage', preserved: ['/profile', '/settings'] },
+    ];
+
+    it.each(REVALIDATION)('$action revalidates /search-discovery', ({ file }) => {
+        expect(codeOf(join(ACTIONS, file))).toContain("revalidatePath('/search-discovery')");
+    });
+
+    it.each(REVALIDATION)('$action keeps every path it already revalidated', ({ file, preserved }) => {
+        const code = codeOf(join(ACTIONS, file));
+        for (const path of preserved) {
+            expect(code).toContain(`revalidatePath('${path}')`);
+        }
+    });
+
+    it('adds revalidation without changing what the actions do', () => {
+        // Storage, conflict target and the session-derived user id are the parts
+        // that must not drift while paths are added.
+        const params = codeOf(join(ACTIONS, 'search-parameters-actions.ts'));
+        expect(params).toContain("from('candidate_preferences')");
+        expect(params).toContain("onConflict: 'user_id'");
+        expect(params).toContain('user_id: user.id');
+
+        const daily = codeOf(join(ACTIONS, 'daily-discovery-actions.ts'));
+        expect(daily).toContain("from('profiles')");
+        expect(daily).toContain('daily_discovery_enabled: enabled');
+        expect(daily).toContain("eq('user_id', user.id)");
+
+        const usage = codeOf(join(ACTIONS, 'usage-actions.ts'));
+        expect(usage).toContain('refreshUsageSnapshot()');
+        expect(usage).not.toContain('getCreditUsage');
+    });
+
+    it('revalidates only after the write is known to have succeeded', () => {
+        // A failed save must not tell Next the page changed.
+        for (const { file } of REVALIDATION) {
+            const code = codeOf(join(ACTIONS, file));
+            const firstRevalidate = code.indexOf("revalidatePath('/search-discovery')");
+            const errorReturn = code.indexOf('return { success: false');
+            expect(errorReturn).toBeGreaterThan(-1);
+            expect(firstRevalidate).toBeGreaterThan(errorReturn);
+        }
+    });
+
+    it('still exposes no credential through the refresh action', () => {
+        const usage = raw(join(ACTIONS, 'usage-actions.ts'));
+        expect(usage).not.toContain('FIRECRAWL_API_KEY');
+        expect(usage).not.toContain('remainingCredits');
+    });
+});
+
 describe('Jobs stays focused on jobs', () => {
     const code = codeOf(JOBS_PAGE);
 

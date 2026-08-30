@@ -45,6 +45,9 @@ export async function saveSearchParameters(input: unknown) {
         }
 
         // Queries are rebuilt from these on the next run, manual or scheduled.
+        // /search-discovery hosts the editor; the other two are retained because
+        // they read the same candidate_preferences row.
+        revalidatePath('/search-discovery')
         revalidatePath('/profile')
         revalidatePath('/preferences')
         return { success: true, data: parsed.data }

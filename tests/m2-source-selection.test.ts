@@ -17,6 +17,7 @@ jest.mock('server-only', () => ({}), { virtual: true });
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }));
 jest.mock('@/utils/supabase/server', () => ({ createClient: jest.fn() }));
 
+import { z } from 'zod';
 import { createClient } from '@/utils/supabase/server';
 import { saveSearchParameters } from '@/app/actions/search-parameters-actions';
 import {
@@ -40,6 +41,22 @@ const ACTIVE = [LEVER, INDEED, REMOTEOK, GREENHOUSE, NAUKRI];
 /** A source the admin deactivated — never present in the active list. */
 const DEACTIVATED_ID = '99999999-9999-4999-8999-999999999999';
 const FABRICATED_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+/**
+ * The REAL ids production uses, seeded by migration 008.
+ *
+ * These are the regression fixture. Every id above is RFC-4122 shaped
+ * (`-4xxx-8xxx-`), which is precisely why the save bug went unnoticed: the
+ * suite validated the code against data production does not have. These carry
+ * version and variant nibbles of 0, so `z.string().uuid()` rejected them and
+ * no "Choose sources" save ever reached the database.
+ */
+const SEEDED_SOURCE_IDS = {
+    lever: 'a0000000-0000-0000-0000-000000000005',
+    remoteok: 'a0000000-0000-0000-0000-000000000010',
+    greenhouse: 'a0000000-0000-0000-0000-000000000004',
+    linkedin: 'a0000000-0000-0000-0000-000000000001',
+} as const;
 
 const MAX_SOURCES_PER_RUN = 3;
 
@@ -178,6 +195,162 @@ describe('Job source selection', () => {
         it('round-trips stored ids and ignores malformed entries', () => {
             const loaded = toSearchParameters({ selected_source_ids: [LEVER.id, '', 42] } as any);
             expect(loaded.selected_source_ids).toEqual([LEVER.id]);
+        });
+    });
+
+    /**
+     * Regression: the ids production actually has must validate.
+     *
+     * `z.string().uuid()` enforces the RFC 4122 version/variant nibbles, which
+     * the seeded ids do not carry, so every "Choose sources" save failed before
+     * the database was touched while "All sources" ([]) always passed.
+     */
+    describe('the seeded production source ids are accepted', () => {
+        const seeded = Object.values(SEEDED_SOURCE_IDS);
+
+        it.each(seeded)('%s passes schema validation', (id) => {
+            const parsed = SearchParametersSchema.safeParse({ selected_source_ids: [id] });
+            expect(parsed.success).toBe(true);
+        });
+
+        it('rejects them under the old RFC-4122 rule — proving the fixture is the real case', () => {
+            // Guards against a well-meaning revert to z.string().uuid().
+            for (const id of seeded) {
+                expect(z.string().uuid().safeParse(id).success).toBe(false);
+            }
+        });
+
+        it('a Choose-sources save of real ids reaches the database', async () => {
+            const s = makeSupabase();
+            (createClient as jest.Mock).mockResolvedValue(s.client);
+
+            const chosen = [SEEDED_SOURCE_IDS.lever, SEEDED_SOURCE_IDS.remoteok, SEEDED_SOURCE_IDS.greenhouse];
+            const res = await saveSearchParameters({ selected_source_ids: chosen });
+
+            expect(res.success).toBe(true);
+            expect(s.upserts).toHaveLength(1);
+            expect(s.upserts[0].payload.selected_source_ids).toEqual(chosen);
+        });
+
+        it('still refuses ids that are not UUID-shaped at all', async () => {
+            const s = makeSupabase();
+            (createClient as jest.Mock).mockResolvedValue(s.client);
+
+            for (const bad of ['not-a-uuid', '', 'a0000000-0000-0000-0000', `${SEEDED_SOURCE_IDS.lever}x`]) {
+                const res = await saveSearchParameters({ selected_source_ids: [bad] });
+                expect(res.success).toBe(false);
+            }
+            expect(s.upserts).toHaveLength(0);
+        });
+
+        it('every id seeded by migration 008 satisfies the schema', () => {
+            // Drift guard: a future seeded source cannot silently reintroduce this.
+            const sql = require('fs').readFileSync(
+                require('path').join(__dirname, '..', 'supabase', 'migrations', '008_seed_shared_data.sql'),
+                'utf8'
+            );
+            const sourceBlock = sql.slice(
+                sql.indexOf('INSERT INTO public.job_sources'),
+                sql.indexOf('INSERT INTO public.jobs')
+            );
+            const ids: string[] = sourceBlock.match(/'a0000000-[0-9a-f-]+'/g)?.map((m: string) => m.slice(1, -1)) ?? [];
+
+            expect(ids.length).toBe(10);
+            const parsed = SearchParametersSchema.safeParse({ selected_source_ids: ids });
+            expect(parsed.success).toBe(true);
+        });
+    });
+
+    /**
+     * Both UI cards share one candidate_preferences row, so a save from either
+     * must carry the whole record rather than patching one column.
+     */
+    describe('the shared candidate_preferences row is never partially overwritten', () => {
+        const FULL = {
+            desired_roles: ['Salesforce Developer', 'Salesforce Engineer', 'Salesforce Programmer'],
+            work_modes: ['remote'] as const,
+            geographic_preferences: ['Worldwide'],
+            remote_search_terms: ['remote', 'work from anywhere', 'remote-first'],
+            desired_skills: ['Apex', 'LWC', 'SOQL'],
+            excluded_skills: [],
+            excluded_roles: [],
+        };
+
+        it('saving sources preserves every search-parameter field', async () => {
+            const s = makeSupabase();
+            (createClient as jest.Mock).mockResolvedValue(s.client);
+
+            await saveSearchParameters({ ...FULL, selected_source_ids: [SEEDED_SOURCE_IDS.lever] });
+
+            const written = s.upserts[0].payload;
+            expect(written.desired_roles).toEqual(FULL.desired_roles);
+            expect(written.work_modes).toEqual(['remote']);
+            expect(written.geographic_preferences).toEqual(['Worldwide']);
+            expect(written.remote_search_terms).toEqual(FULL.remote_search_terms);
+            expect(written.desired_skills).toEqual(FULL.desired_skills);
+            expect(written.selected_source_ids).toEqual([SEEDED_SOURCE_IDS.lever]);
+        });
+
+        it('saving search parameters preserves the source selection', async () => {
+            const s = makeSupabase();
+            (createClient as jest.Mock).mockResolvedValue(s.client);
+
+            const chosen = [SEEDED_SOURCE_IDS.lever, SEEDED_SOURCE_IDS.remoteok];
+            await saveSearchParameters({ ...FULL, desired_skills: ['Apex'], selected_source_ids: chosen });
+
+            expect(s.upserts[0].payload.selected_source_ids).toEqual(chosen);
+            expect(s.upserts[0].payload.desired_skills).toEqual(['Apex']);
+        });
+
+        it('switching back to All sources stores an empty array, not a removal', async () => {
+            const s = makeSupabase();
+            (createClient as jest.Mock).mockResolvedValue(s.client);
+
+            await saveSearchParameters({ ...FULL, selected_source_ids: [] });
+
+            expect(s.upserts[0].payload.selected_source_ids).toEqual([]);
+            expect(s.upserts[0].payload.desired_roles).toEqual(FULL.desired_roles);
+        });
+
+        it('the user_id written is the session id, never a caller argument', async () => {
+            const s = makeSupabase();
+            (createClient as jest.Mock).mockResolvedValue(s.client);
+
+            await saveSearchParameters({
+                ...FULL,
+                user_id: '00000000-0000-0000-0000-0000000000ff',
+                selected_source_ids: [SEEDED_SOURCE_IDS.lever],
+            } as any);
+
+            expect(s.upserts[0].payload.user_id).toBe(SESSION_USER_ID);
+            expect(s.upserts[0].options).toEqual({ onConflict: 'user_id' });
+        });
+    });
+
+    /**
+     * The zero-selection guard is a UI concern: the schema accepts [] because
+     * that is the legitimate "All sources" value, so the panel must be the thing
+     * that refuses to save an empty Choose-sources selection.
+     */
+    describe('zero-selection is blocked in the panel, not the schema', () => {
+        const panel = require('fs').readFileSync(
+            require('path').join(__dirname, '..', 'src', 'components', 'discovery', 'search-parameters-panel.tsx'),
+            'utf8'
+        );
+
+        it('computes a no-source-chosen state from Choose mode plus an empty list', () => {
+            expect(panel).toContain('const noSourceChosen = chooseSources && values.selected_source_ids.length === 0');
+        });
+
+        it('disables Save while nothing is ticked', () => {
+            expect(panel).toMatch(/disabled=\{[^}]*noSourceChosen[^}]*\}/);
+        });
+
+        it('only marks the form saved after the action reports success', () => {
+            // The Unsaved-changes badge stuck precisely because a failed save
+            // must not call setSaved.
+            expect(panel).toMatch(/if \(!result\.success\)[\s\S]{0,200}return/);
+            expect(panel).toContain('setSaved(values)');
         });
     });
 
