@@ -1,6 +1,18 @@
 export interface DiscoveredURL {
     url: string;
     sourceDomain: string;
+    /**
+     * Search-result metadata, when the provider supplied it.
+     *
+     * Both are OPTIONAL and additive: the legacy discover() path sets neither,
+     * so it behaves exactly as before. They exist so the pre-extraction gate can
+     * judge a candidate from data the search call already returned and already
+     * paid for — reading them costs no extra request and no extra credit.
+     *
+     * Absent means "the provider said nothing", never "the posting lacks this".
+     */
+    title?: string;
+    snippet?: string;
 }
 
 export interface ExtractedJobData {

@@ -273,7 +273,19 @@ export class FirecrawlAdapter implements JobSourceAdapter {
                 if (seen.has(urlStr)) continue;
                 seen.add(urlStr);
 
-                discovered.push({ url: urlStr, sourceDomain: hostname });
+                // SearchResultWeb also carries title and description. They were
+                // previously discarded; keeping them lets the pre-extraction
+                // gate reject an obvious non-posting without a second request.
+                const rec = item as Record<string, unknown>;
+                const asText = (v: unknown): string | undefined =>
+                    typeof v === 'string' && v.trim().length > 0 ? v : undefined;
+
+                discovered.push({
+                    url: urlStr,
+                    sourceDomain: hostname,
+                    title: asText(rec.title),
+                    snippet: asText(rec.description),
+                });
             }
 
             // Observability for credit accounting: how many results the provider

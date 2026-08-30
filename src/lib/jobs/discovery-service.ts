@@ -15,6 +15,7 @@ import {
 } from './discovery-lock';
 import { minSearchSpacingMs } from './adapters/firecrawl-adapter';
 import { resolveEligibleSources } from '@/lib/types/search-parameters';
+import { evaluateCandidate, describeSkip, type GateContext } from './candidate-gate';
 
 /**
  * Validates that a discovered candidate URL strictly belongs to the permitted root domain.
@@ -599,6 +600,27 @@ export async function runProfileTargetedDiscovery(
     // Guards against re-searching the same source twice within one run.
     const emittedThisRun = new Set<string>();
 
+    /**
+     * Sources that actually issued at least one search.
+     *
+     * The rotation pointer is advanced from THIS set, not from the selected
+     * set. Selection happens up front, but the execution budget routinely stops
+     * the run after the first source — stamping all three would send two
+     * sources to the back of the queue without ever having searched them, so
+     * they would keep losing their turn to sources that had already had one.
+     */
+    const searchedSourceIds = new Set<string>();
+
+    /**
+     * Exclusions for the pre-extraction gate.
+     *
+     * Populated from candidate_preferences below, before the override is ever
+     * invoked (it runs inside runJobDiscoveryForUser). Empty means the gate
+     * applies only its URL-shape and unrelated-occupation rules.
+     */
+    let gateContext: GateContext = {};
+    let prefetchSkipped = 0;
+
     // Run-wide extraction budget — the real cost control (see maxUrlsPerRun).
     // Clamped to the hard ceiling: a caller can request fewer URLs, never more.
     const maxUrlsPerRun = resolveUrlBudget(options.maxUrlsPerRun);
@@ -664,6 +686,9 @@ export async function runProfileTargetedDiscovery(
             }
 
             searchesAttempted++;
+            // Recorded here, immediately before the outbound call, so a source
+            // is marked searched only once it has genuinely had its turn.
+            searchedSourceIds.add(source.id);
 
             // Restricted to THIS source's domain, so results are inherently
             // within the existing allow-list.
@@ -675,6 +700,20 @@ export async function runProfileTargetedDiscovery(
             for (const item of found) {
                 if (urlBudgetRemaining <= 0) break;
                 if (alreadySeen.has(item.url) || emittedThisRun.has(item.url)) continue;
+
+                // Pre-extraction gate. Runs BEFORE the URL is collected, so a
+                // skipped candidate never reaches runJobDiscoveryForUser: no
+                // crawl_run, no job_source_mapping, no job row, and — because
+                // the budget is only decremented below — no extraction slot
+                // either. It stays discoverable on a later run.
+                const decision = evaluateCandidate(item, gateContext);
+                if (!decision.keep) {
+                    prefetchSkipped++;
+                    emittedThisRun.add(item.url);
+                    console.log(`[ProfileTargeted] ${describeSkip(item, decision)}`);
+                    continue;
+                }
+
                 emittedThisRun.add(item.url);
                 collected.push(item);
                 urlBudgetRemaining--;
@@ -710,9 +749,16 @@ export async function runProfileTargetedDiscovery(
     // Rotation order is preserved exactly.
     const { data: sourcePrefs } = await adminClient
         .from('candidate_preferences')
-        .select('selected_source_ids')
+        .select('selected_source_ids, excluded_roles, excluded_skills')
         .eq('user_id', userId)
         .maybeSingle();
+
+    // Same row, same single source of truth — the gate honours the exclusions
+    // the user already stated in Search Parameters rather than inventing rules.
+    gateContext = {
+        excludedRoles: (sourcePrefs?.excluded_roles as string[] | null) ?? [],
+        excludedSkills: (sourcePrefs?.excluded_skills as string[] | null) ?? [],
+    };
 
     const eligibleSources = resolveEligibleSources(
         allActiveSources ?? [],
@@ -743,19 +789,36 @@ export async function runProfileTargetedDiscovery(
     );
 
     // Advance the rotation so the NEXT run picks up where this one left off.
-    // Stamped after the run regardless of per-source yield: a source that was
-    // searched has had its turn, so it must not be selected again ahead of
-    // sources still waiting.
-    if (activeSources.length > 0) {
+    //
+    // Only sources that ACTUALLY searched are stamped. Yield is still
+    // irrelevant — a source that searched and found nothing has had its turn —
+    // but a source the budget never reached has not, and must keep its old
+    // last_crawled_at so it sorts ahead on the next run.
+    const stampIds = activeSources.map(s => s.id).filter(id => searchedSourceIds.has(id));
+
+    if (stampIds.length > 0) {
         const { error: rotationError } = await adminClient
             .from('job_sources')
             .update({ last_crawled_at: new Date().toISOString() })
-            .in('id', activeSources.map(s => s.id));
+            .in('id', stampIds);
 
         if (rotationError) {
             // Non-fatal: the run succeeded, only the rotation pointer failed.
             console.error('[ProfileTargeted] rotation stamp failed:', rotationError.message);
         }
+    }
+
+    if (stampIds.length < activeSources.length) {
+        console.log(
+            `[ProfileTargeted] rotation stamped ${stampIds.length}/${activeSources.length} selected source(s); ` +
+            'the rest were never searched and stay first in line'
+        );
+    }
+
+    if (prefetchSkipped > 0) {
+        console.log(
+            `[ProfileTargeted] pre-extraction gate skipped ${prefetchSkipped} candidate(s) before any extraction spend`
+        );
     }
 
         await releaseDiscoveryLock(
