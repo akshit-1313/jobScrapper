@@ -20,6 +20,7 @@ import {
     selectTitles,
     normaliseRotationOffset,
     advanceRotationOffset,
+    ROTATION_COUNTER_MODULUS,
     type StrategyInput,
 } from '@/lib/jobs/profile-search-strategy';
 
@@ -53,7 +54,7 @@ function simulate(roles: string[], k: number, runs: number): string[][] {
     for (let i = 0; i < runs; i++) {
         const { titles } = selectTitles(input(roles), k, offset);
         out.push(titles);
-        offset = advanceRotationOffset(offset, k, roles.length);
+        offset = advanceRotationOffset(offset);
     }
     return out;
 }
@@ -85,14 +86,18 @@ describe('Offset normalisation', () => {
 
     it('is 0 when there is nothing to rotate', () => {
         expect(normaliseRotationOffset(5, 0)).toBe(0);
-        expect(advanceRotationOffset(5, 3, 0)).toBe(0);
     });
 
-    it('advances by the window width so runs tile the list', () => {
-        expect(advanceRotationOffset(0, 3, 4)).toBe(3);
-        expect(advanceRotationOffset(3, 3, 4)).toBe(2);
-        expect(advanceRotationOffset(2, 3, 4)).toBe(1);
-        expect(advanceRotationOffset(1, 3, 4)).toBe(0);
+    it('is a plain run counter — each ring takes its own modulus', () => {
+        expect(advanceRotationOffset(0)).toBe(1);
+        expect(advanceRotationOffset(1)).toBe(2);
+        expect(advanceRotationOffset(41)).toBe(42);
+    });
+
+    it('stays bounded and recovers from a corrupt stored value', () => {
+        expect(advanceRotationOffset(ROTATION_COUNTER_MODULUS - 1)).toBe(0);
+        expect(advanceRotationOffset(-5)).toBe(ROTATION_COUNTER_MODULUS - 5 + 1);
+        expect(advanceRotationOffset(NaN)).toBe(1);
     });
 });
 
@@ -258,20 +263,30 @@ describe('Role list changes need no reset and no code change', () => {
         const before = ['A', 'B', 'C'];
         expect(simulate(before, MANUAL_QUERIES, 1)[0]).toEqual(['a', 'b', 'c']);
 
-        // The user adds a fourth role; the stored offset is already 3.
+        // One run has happened, so the counter is 1. The user now adds a
+        // fourth role, and the very next run reaches it.
         const after = ['A', 'B', 'C', 'D'];
-        expect(titlesFor(after, MANUAL_QUERIES, 3)).toEqual(['d', 'a', 'b']);
+        expect(titlesFor(after, MANUAL_QUERIES, 1)).toEqual(['d', 'a', 'b']);
     });
 
-    it('a removed role leaves a stale offset that self-corrects', () => {
-        // Offset 4 was valid for five roles; two are now gone.
-        expect(titlesFor(['A', 'B', 'C'], MANUAL_QUERIES, 4)).toEqual(['b', 'c', 'a']);
+    it('a stale counter from a longer list still yields a valid window', () => {
+        // The counter was written when there were more roles. It is folded
+        // into range at every use site, so nothing needs resetting.
+        const titles = titlesFor(['A', 'B', 'C'], MANUAL_QUERIES, 4);
+        expect(titles).toHaveLength(3);
+        expect(new Set(titles)).toEqual(new Set(['a', 'b', 'c']));
     });
 
     it('replacing every role rotates the new list normally', () => {
+        // Two roles and two daily slots: one slot is yielded to the portfolio,
+        // so both roles are reached across two runs rather than one.
         const replaced = ['Nurse Practitioner', 'Clinical Lead'];
-        const { titles } = selectTitles(input(replaced), SCHEDULED_QUERIES, 0);
-        expect(titles).toEqual(['nurse practitioner', 'clinical lead']);
+        const seen = new Set([
+            ...selectTitles(input(replaced), SCHEDULED_QUERIES, 0).titles,
+            ...selectTitles(input(replaced), SCHEDULED_QUERIES, 1).titles,
+        ]);
+        expect(seen.has('nurse practitioner')).toBe(true);
+        expect(seen.has('clinical lead')).toBe(true);
     });
 
     it('reordering changes the search order', () => {

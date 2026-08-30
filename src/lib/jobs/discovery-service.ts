@@ -527,18 +527,11 @@ export async function advanceRoleRotation(
         // the pointer is meaningless, so leave it alone.
         if (roles.length === 0) return;
 
-        // Advance by the run's query count, not by the number of roles it
-        // happened to consume. When there are fewer roles than slots those are
-        // equal in effect for the explicit window, but stepping by the slot
-        // count also moves the pointer that orders the derived intents — so a
-        // profile with two roles still reaches different resume-derived
-        // searches on successive runs instead of repeating one set forever.
-        const consumed = Math.max(1, maxQueries);
-        const next = advanceRotationOffset(
-            (data?.role_rotation_offset as number | null) ?? 0,
-            consumed,
-            roles.length
-        );
+        // A plain run counter. Each ring in the portfolio takes its own modulus
+        // of it, so the explicit roles and the resume-derived intents both
+        // advance every run instead of one standing still because its length
+        // divided the step.
+        const next = advanceRotationOffset((data?.role_rotation_offset as number | null) ?? 0);
 
         const { error } = await adminClient
             .from('candidate_preferences')

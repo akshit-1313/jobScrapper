@@ -213,9 +213,30 @@ describe('Explicit roles are never displaced', () => {
         expect(titles.slice(0, 2)).toEqual(['alpha role', 'beta role']);
     });
 
-    it('derived intents only ever fill slots the explicit roles left over', () => {
+    it('explicit roles always lead, and none is starved by the yielded slot', () => {
+        // Three roles, three slots: the selection would otherwise be identical
+        // every run, so one slot is yielded to the portfolio. Explicit roles
+        // still lead every run, and all three are reached across two.
         const p = profile({
             roles: ['A', 'B', 'C'],
+            skills: [['Grafting', 'tool', true]],
+            engagements: [{ tech: ['grafting'] }, { tech: ['grafting'] }],
+        });
+
+        const run0 = selectTitles(p, MANUAL, 0).titles;
+        const run1 = selectTitles(p, MANUAL, 1).titles;
+
+        expect(run0.slice(0, 2)).toEqual(['a', 'b']);
+        for (const role of ['a', 'b', 'c']) {
+            expect([...run0, ...run1]).toContain(role);
+        }
+    });
+
+    it('explicit roles keep every slot when they already rotate', () => {
+        // Four roles into three slots: the window varies run to run on its
+        // own, so nothing is yielded and explicit roles take all three.
+        const p = profile({
+            roles: ['A', 'B', 'C', 'D'],
             skills: [['Grafting', 'tool', true]],
             engagements: [{ tech: ['grafting'] }, { tech: ['grafting'] }],
         });
@@ -343,7 +364,7 @@ describe('Rotation reaches different intents over time', () => {
         for (let i = 0; i < 4; i++) {
             const { titles } = selectTitles(FOUR, MANUAL, offset);
             runs.push(titles);
-            offset = advanceRotationOffset(offset, MANUAL, 4);
+            offset = advanceRotationOffset(offset);
         }
         expect(runs).toEqual([
             ['a', 'b', 'c'], ['d', 'a', 'b'], ['c', 'd', 'a'], ['b', 'c', 'd'],

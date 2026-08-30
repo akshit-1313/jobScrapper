@@ -649,16 +649,23 @@ export function normaliseRotationOffset(offset: number | null | undefined, size:
 }
 
 /**
- * The next offset to store after a run consumed `consumed` roles from `size`.
- *
- * Advancing by exactly the window width means consecutive runs tile the list
- * without overlap, so every role is reached within ceil(size / consumed) runs.
+ * Keeps the stored counter bounded without ever making it meaningful modulo a
+ * list length — every use site takes its own modulus.
  */
-export function advanceRotationOffset(offset: number, consumed: number, size: number): number {
-    if (size <= 0) return 0
-    const from = normaliseRotationOffset(offset, size)
-    const step = Math.max(0, Math.trunc(consumed))
-    return (from + step) % size
+export const ROTATION_COUNTER_MODULUS = 1_000_000
+
+/**
+ * The next value to store after a run.
+ *
+ * The offset is a RUN COUNTER, not an index. Each ring in the portfolio takes
+ * its own modulus of it, which is what lets one persisted integer drive two
+ * rings of different lengths without them fighting: a two-role ring and a
+ * six-intent ring both advance every run instead of one of them standing still
+ * because its length happened to divide the step.
+ */
+export function advanceRotationOffset(offset: number): number {
+    const from = normaliseRotationOffset(offset, ROTATION_COUNTER_MODULUS)
+    return (from + 1) % ROTATION_COUNTER_MODULUS
 }
 
 /**
@@ -719,70 +726,78 @@ export function selectTitles(
     for (const e of input.experience.filter(x => x.is_current)) pushInferred(e.title)
     for (const e of input.experience.filter(x => !x.is_current)) pushInferred(e.title)
 
-    // ── Rotating window over the explicit roles ──
-    const N = explicit.length
-    const windowSize = Math.min(N, maxQueries)
-    const start = normaliseRotationOffset(rotationOffset, N)
-
-    const selected: string[] = []
-    for (let i = 0; i < windowSize; i++) {
-        selected.push(explicit[(start + i) % N])
+    // ── The non-explicit half of the portfolio, best evidence first ──
+    // Profile titles, then resume-derived intents, then vocabulary synonyms.
+    const qualifierByTitle = new Map<string, string>()
+    const rest: string[] = []
+    const pushRest = (t: string) => {
+        if (allowed(t) && !explicit.includes(t) && !rest.includes(t)) rest.push(t)
     }
 
-    // ── Fill any remaining slots ──
-    //
-    // Order follows the evidence, strongest first:
-    //   profile titles  — what the user currently is
-    //   derived titles  — a qualifier the resume repeats + the role noun it uses
-    //   synonyms        — generic vocabulary, weakest evidence
-    //
-    // Derived intents sit ahead of synonyms because "integration developer",
-    // built from a domain appearing across several engagements, is better
-    // grounded than a dictionary swap of a word in an existing title.
-    const qualifierByTitle = new Map<string, string>()
-
-    if (selected.length < maxQueries) {
-        const fillers: string[] = []
-
-        for (const t of inferred) fillers.push(t)
-
-        for (const intent of buildSearchPortfolio(input, rotationOffset)) {
-            if (intent.kind !== 'derived') continue
-            fillers.push(intent.title)
-            if (intent.qualifier) qualifierByTitle.set(intent.title, intent.qualifier)
-        }
-
-        // Synonyms last, breadth-first so one seed cannot take every slot.
-        const seeds = [...selected, ...explicit.filter(t => !selected.includes(t)), ...inferred]
+    for (const t of inferred) pushRest(t)
+    for (const intent of buildSearchPortfolio(input, rotationOffset)) {
+        if (intent.kind !== 'derived') continue
+        pushRest(intent.title)
+        if (intent.qualifier) qualifierByTitle.set(intent.title, intent.qualifier)
+    }
+    {
+        const seeds = [...explicit, ...inferred]
         const expansions = seeds.map(s => deriveAlternativeTitles(s).filter(allowed))
         const deepest = expansions.reduce((m, e) => Math.max(m, e.length), 0)
-        for (let rank = 0; rank < deepest; rank++) {
+        for (let rank = 1; rank < deepest; rank++) {
             for (const expansion of expansions) {
-                const candidate = expansion[rank]
-                if (candidate) fillers.push(candidate)
+                if (expansion[rank]) pushRest(expansion[rank])
             }
-        }
-
-        // Rotate the fillers too, by the same offset.
-        //
-        // Ranking decides which candidates are best; rotation decides which of
-        // them THIS run gets. Without this the leftover slots are a fixed
-        // prefix, so with (say) two explicit roles and one profile title the
-        // third slot is that title on every run and the derived intents — often
-        // the strongest evidence in the resume — are never actually searched.
-        const ordered = fillers.length > 0
-            ? fillers.map((_, i) => fillers[(normaliseRotationOffset(rotationOffset, fillers.length) + i) % fillers.length])
-            : []
-
-        for (const candidate of ordered) {
-            if (selected.length >= maxQueries) break
-            if (!allowed(candidate) || selected.includes(candidate)) continue
-            selected.push(candidate)
         }
     }
 
-    return { titles: selected, rolesConsumed: windowSize, explicitCount: N, qualifierByTitle }
+    // ── How many slots the explicit roles hold ──
+    //
+    // Explicit roles keep strong priority: they always lead, and they take
+    // every slot when nothing else is available. But they do NOT take every
+    // slot when the portfolio has more to offer — one slot is yielded so that
+    // resume-derived intents actually reach the daily run. Without this a user
+    // with two roles and two daily slots would search the same two titles every
+    // day forever, and everything their resume implies would be unreachable.
+    // The yield applies ONLY when the explicit selection would otherwise be
+    // identical on every run — that is, when every explicit role fits in the
+    // slots. With more roles than slots the window already varies run to run,
+    // so explicit roles keep every slot and the portfolio waits its turn.
+    const N = explicit.length
+    const explicitSelectionIsInvariant = N > 0 && N <= maxQueries
+    const explicitSlots = Math.min(
+        N,
+        rest.length > 0 && explicitSelectionIsInvariant
+            ? Math.max(1, maxQueries - 1)
+            : maxQueries
+    )
+
+    // Each ring takes its own modulus of the shared run counter, so both
+    // advance every run regardless of their lengths.
+    const selected: string[] = []
+    if (explicitSlots > 0) {
+        const start = normaliseRotationOffset(rotationOffset * explicitSlots, N)
+        for (let i = 0; i < explicitSlots; i++) selected.push(explicit[(start + i) % N])
+    }
+
+    if (rest.length > 0 && selected.length < maxQueries) {
+        const start = normaliseRotationOffset(rotationOffset, rest.length)
+        for (let i = 0; i < rest.length && selected.length < maxQueries; i++) {
+            const candidate = rest[(start + i) % rest.length]
+            if (!selected.includes(candidate)) selected.push(candidate)
+        }
+    }
+
+    // Top up from any explicit role still unused, so a short portfolio never
+    // wastes a slot the budget already paid for.
+    for (const t of explicit) {
+        if (selected.length >= maxQueries) break
+        if (!selected.includes(t)) selected.push(t)
+    }
+
+    return { titles: selected, rolesConsumed: explicitSlots, explicitCount: N, qualifierByTitle }
 }
+
 
 export function buildSearchStrategies(
     input: StrategyInput,
