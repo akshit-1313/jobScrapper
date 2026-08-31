@@ -371,20 +371,49 @@ describe('Rotation reaches different intents over time', () => {
         ]);
     });
 
-    it('the derived pool is not frozen on one intent across runs', () => {
-        const many = profile({
-            headline: 'Zorb Developer',
-            roles: ['Zorb Developer'],
-            skills: [['Alpha', 'tool', true], ['Beta', 'tool', true], ['Gamma', 'tool', true]],
-            engagements: [
-                { tech: ['alpha', 'beta'] }, { tech: ['alpha', 'gamma'] },
-                { tech: ['beta', 'gamma'] },
-            ],
-        });
-        const first = buildSearchPortfolio(many, 0).filter(i => i.kind === 'derived').map(i => i.title);
-        const later = buildSearchPortfolio(many, 1).filter(i => i.kind === 'derived').map(i => i.title);
-        expect(first).not.toEqual(later);
-        expect(new Set(first)).toEqual(new Set(later));
+    const MANY = profile({
+        headline: 'Zorb Developer',
+        roles: ['Zorb Developer'],
+        skills: [['Alpha', 'tool', true], ['Beta', 'tool', true], ['Gamma', 'tool', true]],
+        engagements: [
+            { tech: ['alpha', 'beta'] }, { tech: ['alpha', 'gamma'] },
+            { tech: ['beta', 'gamma'] },
+        ],
+    });
+
+    it('the portfolio itself is ranked, never rotated', () => {
+        // Exactly one rotation exists, and it lives in selectTitles. Rotating
+        // here too made the strides compound and starved half the derived pool.
+        expect(buildSearchPortfolio(MANY)).toEqual(buildSearchPortfolio(MANY));
+        const derived = buildSearchPortfolio(MANY).filter(i => i.kind === 'derived');
+        for (let i = 1; i < derived.length; i++) {
+            expect(derived[i - 1].score).toBeGreaterThanOrEqual(derived[i].score);
+        }
+    });
+
+    it('selection is not frozen on one derived intent across runs', () => {
+        const seen = new Set<string>();
+        let offset = 0;
+        for (let run = 0; run < 8; run++) {
+            selectTitles(MANY, SCHEDULED, offset).titles.forEach(t => seen.add(t));
+            offset = advanceRotationOffset(offset);
+        }
+        for (const intent of buildSearchPortfolio(MANY).filter(i => i.kind === 'derived')) {
+            expect(seen.has(intent.title)).toBe(true);
+        }
+    });
+
+    it('every intent in the portfolio is reached — none is starved', () => {
+        // The regression this pins: two rotations driven by one counter
+        // compounded, so only every other derived intent was ever selected.
+        const portfolio = buildSearchPortfolio(MANY).map(i => i.title);
+        const seen = new Set<string>();
+        let offset = 0;
+        for (let run = 0; run < portfolio.length * 3; run++) {
+            selectTitles(MANY, run % 3 === 0 ? MANUAL : SCHEDULED, offset).titles.forEach(t => seen.add(t));
+            offset = advanceRotationOffset(offset);
+        }
+        expect([...portfolio].filter(t => !seen.has(t))).toEqual([]);
     });
 
     it('is deterministic for the same inputs and offset', () => {

@@ -422,14 +422,17 @@ export function deriveRoleNoun(titles: string[]): string | null {
 /**
  * The full set of search intents this profile supports, best evidence first.
  *
- * Read-only and side-effect free. A run consumes only the first few, but the
- * whole portfolio is returned so it can be inspected when a search finds
- * little — see explainPortfolio.
+ * Read-only, side-effect free and INDEPENDENT OF THE ROTATION. The order here
+ * is pure ranking; choosing which of these a given run gets is selectTitles'
+ * job, and it must be the only place a rotation is applied.
+ *
+ * This function used to rotate the derived block itself. That produced two
+ * rotations driven by the same counter — one here and one over the combined
+ * ring in selectTitles — whose strides compounded, so with four derived intents
+ * only every other one was ever selected and two were starved permanently. One
+ * rotation, in one place, is what makes the coverage guarantee hold.
  */
-export function buildSearchPortfolio(
-    input: StrategyInput,
-    rotationOffset = 0
-): SearchIntent[] {
+export function buildSearchPortfolio(input: StrategyInput): SearchIntent[] {
     const excluded = new Set((input.preferences?.excluded_roles ?? []).map(normalizeTitle).filter(Boolean))
     const allowed = (t: string): boolean => {
         if (!t) return false
@@ -473,13 +476,8 @@ export function buildSearchPortfolio(
     const qualifiers = extractQualifiers(input.skills, input.engagements)
 
     if (roleNoun) {
-        // Rotated by the same offset as the explicit roles, so successive runs
-        // reach different derived intents instead of always the strongest one.
-        const ordered = qualifiers.length > 0
-            ? qualifiers.map((_, i) => qualifiers[(normaliseRotationOffset(rotationOffset, qualifiers.length) + i) % qualifiers.length])
-            : []
-
-        for (const q of ordered) {
+        // Strongest evidence first. No rotation here — see the note above.
+        for (const q of qualifiers) {
             add({
                 title: `${q.term} ${roleNoun}`,
                 kind: 'derived',
@@ -527,7 +525,7 @@ export function explainPortfolio(
 } {
     const maxQueries = Math.max(1, options.maxQueries ?? DEFAULT_MAX_QUERIES)
     const offset = options.rotationOffset ?? 0
-    const portfolio = buildSearchPortfolio(input, offset)
+    const portfolio = buildSearchPortfolio(input)
     const { titles } = selectTitles(input, maxQueries, offset)
     const chosen = new Set(titles)
 
@@ -735,7 +733,7 @@ export function selectTitles(
     }
 
     for (const t of inferred) pushRest(t)
-    for (const intent of buildSearchPortfolio(input, rotationOffset)) {
+    for (const intent of buildSearchPortfolio(input)) {
         if (intent.kind !== 'derived') continue
         pushRest(intent.title)
         if (intent.qualifier) qualifierByTitle.set(intent.title, intent.qualifier)
